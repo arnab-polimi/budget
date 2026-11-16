@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import subprocess
 import hashlib
 import base64
 import json
@@ -8,7 +9,8 @@ from typing import Dict, List, Optional, Tuple, Any
 import pandas as pd
 import requests
 
-DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_DIR = os.path.join(ROOT_DIR, "data")
 DB_PATH = os.path.join(DB_DIR, "budget_2027.db")
 
 DEFAULT_CATEGORIES = [
@@ -442,78 +444,103 @@ def update_wishlist_status(item_id: int, status: str) -> None:
 
 
 def sync_db_to_github(
-    github_token: str,
-    github_repo: str,
+    github_token: str = "",
+    github_repo: str = "",
     github_branch: str = "main",
     remote_path: str = "data/budget_2027.db",
     commit_message: Optional[str] = None,
 ) -> Tuple[bool, str]:
-    if not github_token or not github_repo:
-        return False, "Missing GitHub token or repository name."
-
     if not os.path.exists(DB_PATH):
         init_db()
 
-    with open(DB_PATH, "rb") as f:
-        content_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-    api_url = f"https://api.github.com/repos/{github_repo.strip()}/contents/{remote_path.strip('/')}"
-    headers = {
-        "Authorization": f"Bearer {github_token.strip()}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-
-    sha = None
-    get_resp = requests.get(api_url, headers=headers, params={"ref": github_branch}, timeout=15)
-    if get_resp.status_code == 200:
-        sha = get_resp.json().get("sha")
-    elif get_resp.status_code not in (404,):
-        return False, f"GitHub read error ({get_resp.status_code})"
-
     msg = commit_message or f"chore(db): sync ledger [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
-    payload: Dict[str, Any] = {
-        "message": msg,
-        "content": content_b64,
-        "branch": github_branch,
-    }
-    if sha:
-        payload["sha"] = sha
 
-    put_resp = requests.put(api_url, headers=headers, json=payload, timeout=20)
-    if put_resp.status_code in (200, 201):
-        return True, f"Synced to {github_repo} ({github_branch})."
-    return False, f"GitHub push failed ({put_resp.status_code})."
+    # 1. If a GitHub Personal Access Token is provided (e.g. on Streamlit Cloud), push via GitHub REST API
+    if github_token and github_repo:
+        with open(DB_PATH, "rb") as f:
+            content_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        api_url = f"https://api.github.com/repos/{github_repo.strip()}/contents/{remote_path.strip('/')}"
+        headers = {
+            "Authorization": f"Bearer {github_token.strip()}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+        sha = None
+        get_resp = requests.get(api_url, headers=headers, params={"ref": github_branch}, timeout=15)
+        if get_resp.status_code == 200:
+            sha = get_resp.json().get("sha")
+        elif get_resp.status_code not in (404,):
+            return False, f"GitHub read error ({get_resp.status_code})"
+
+        payload: Dict[str, Any] = {
+            "message": msg,
+            "content": content_b64,
+            "branch": github_branch,
+        }
+        if sha:
+            payload["sha"] = sha
+
+        put_resp = requests.put(api_url, headers=headers, json=payload, timeout=20)
+        if put_resp.status_code in (200, 201):
+            return True, f"Synced to {github_repo} ({github_branch})."
+        return False, f"GitHub push failed ({put_resp.status_code})."
+
+    # 2. Local Git CLI fallback (uses local git credentials automatically without needing a token)
+    if os.path.exists(os.path.join(ROOT_DIR, ".git")):
+        try:
+            subprocess.run(["git", "add", "data/budget_2027.db"], cwd=ROOT_DIR, check=True, capture_output=True)
+            commit_res = subprocess.run(["git", "commit", "-m", msg], cwd=ROOT_DIR, capture_output=True, text=True)
+            if "nothing to commit" in (commit_res.stdout or "") + (commit_res.stderr or ""):
+                return True, "Database already up to date in Git."
+            push_res = subprocess.run(["git", "push", "origin", github_branch], cwd=ROOT_DIR, capture_output=True, text=True, timeout=20)
+            if push_res.returncode == 0:
+                return True, "Committed and pushed DB to GitHub via local Git."
+            return False, f"Committed locally, push error: {push_res.stderr[:120]}"
+        except Exception as e:
+            return False, f"Local Git sync error: {e}"
+
+    return False, "Missing GitHub token or local Git repository."
 
 
 def pull_db_from_github(
-    github_token: str,
-    github_repo: str,
+    github_token: str = "",
+    github_repo: str = "",
     github_branch: str = "main",
     remote_path: str = "data/budget_2027.db",
 ) -> Tuple[bool, str]:
-    if not github_token or not github_repo:
-        return False, "Missing GitHub token or repository name."
+    if github_token and github_repo:
+        api_url = f"https://api.github.com/repos/{github_repo.strip()}/contents/{remote_path.strip('/')}"
+        headers = {
+            "Authorization": f"Bearer {github_token.strip()}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
 
-    api_url = f"https://api.github.com/repos/{github_repo.strip()}/contents/{remote_path.strip('/')}"
-    headers = {
-        "Authorization": f"Bearer {github_token.strip()}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+        resp = requests.get(api_url, headers=headers, params={"ref": github_branch}, timeout=15)
+        if resp.status_code != 200:
+            return False, f"Fetch failed ({resp.status_code})."
 
-    resp = requests.get(api_url, headers=headers, params={"ref": github_branch}, timeout=15)
-    if resp.status_code != 200:
-        return False, f"Fetch failed ({resp.status_code})."
+        data = resp.json()
+        content_b64 = data.get("content", "")
+        if not content_b64:
+            return False, "Remote file is empty."
 
-    data = resp.json()
-    content_b64 = data.get("content", "")
-    if not content_b64:
-        return False, "Remote file is empty."
+        raw_bytes = base64.b64decode(content_b64)
+        os.makedirs(DB_DIR, exist_ok=True)
+        with open(DB_PATH, "wb") as f:
+            f.write(raw_bytes)
 
-    raw_bytes = base64.b64decode(content_b64)
-    os.makedirs(DB_DIR, exist_ok=True)
-    with open(DB_PATH, "wb") as f:
-        f.write(raw_bytes)
+        return True, f"Restored from {github_repo} ({github_branch})."
 
-    return True, f"Restored from {github_repo} ({github_branch})."
+    if os.path.exists(os.path.join(ROOT_DIR, ".git")):
+        try:
+            pull_res = subprocess.run(["git", "pull", "--rebase", "origin", github_branch], cwd=ROOT_DIR, capture_output=True, text=True, timeout=20)
+            if pull_res.returncode == 0:
+                return True, "Pulled latest DB from GitHub via local Git."
+            return False, f"Git pull failed: {pull_res.stderr[:120]}"
+        except Exception as e:
+            return False, f"Local Git pull error: {e}"
+
+    return False, "Missing GitHub token or local Git repository."

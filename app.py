@@ -171,21 +171,20 @@ def _get_secret(key: str, default: str = "") -> str:
 
 
 def trigger_auto_github_sync(reason: str = "update") -> None:
-    if st.session_state.get("auto_github_sync", False):
+    if st.session_state.get("auto_github_sync", True):
         token = st.session_state.get("gh_token") or _get_secret("GITHUB_TOKEN")
-        repo = st.session_state.get("gh_repo") or _get_secret("GITHUB_REPO")
+        repo = st.session_state.get("gh_repo") or _get_secret("GITHUB_REPO", "arnab-polimi/budget")
         branch = st.session_state.get("gh_branch") or _get_secret("GITHUB_BRANCH", "main")
-        if token and repo:
-            ok, msg = sync_db_to_github(
-                github_token=token,
-                github_repo=repo,
-                github_branch=branch,
-                commit_message=f"chore(db): sync after {reason}",
-            )
-            if ok:
-                st.toast(f"Synced to {repo}")
-            else:
-                st.toast(f"Sync error: {msg}")
+        ok, msg = sync_db_to_github(
+            github_token=token,
+            github_repo=repo,
+            github_branch=branch,
+            commit_message=f"chore(db): sync after {reason}",
+        )
+        if ok:
+            st.toast(f"Saved & synced ({reason})")
+        else:
+            st.toast(f"Saved locally ({msg})")
 
 
 # Load settings
@@ -280,7 +279,7 @@ with st.sidebar:
     st.session_state["gh_token"] = gh_token
     st.session_state["gh_branch"] = gh_branch
 
-    st.checkbox("Auto-commit on write", key="auto_github_sync", value=False)
+    st.checkbox("Auto-commit on write", key="auto_github_sync", value=True)
 
     col_gh1, col_gh2 = st.columns(2)
     with col_gh1:
@@ -899,13 +898,20 @@ with tabs[3]:
     elif audit_selection_mode == "Multi-Select Batch Table":
         st.markdown(f"##### Select Multiple Transactions to Audit Together ({len(suspect_choices_df)} in view)")
 
+        if "batch_ed_ver" not in st.session_state:
+            st.session_state["batch_ed_ver"] = 0
+
         sel_ctrl1, sel_ctrl2, sel_ctrl3 = st.columns([0.6, 0.6, 2.8])
         with sel_ctrl1:
             if st.button("Select All in View", width="stretch"):
                 st.session_state["batch_select_all"] = True
+                st.session_state["batch_ed_ver"] += 1
+                st.rerun()
         with sel_ctrl2:
             if st.button("Clear Selection", width="stretch"):
                 st.session_state["batch_select_all"] = False
+                st.session_state["batch_ed_ver"] += 1
+                st.rerun()
 
         default_check = bool(st.session_state.get("batch_select_all", False))
         batch_df = suspect_choices_df[["id", "tx_date", "merchant", "category", "amount", "verdict", "description"]].copy()
@@ -927,7 +933,7 @@ with tabs[3]:
                 "verdict": "Current Status",
                 "description": "Raw Bank Description",
             },
-            key="multi_audit_editor",
+            key=f"multi_audit_editor_{st.session_state['batch_ed_ver']}_{audit_queue_mode}",
         )
 
         selected_rows = edited_batch[edited_batch["Select"] == True]
@@ -962,24 +968,28 @@ with tabs[3]:
             if st.button(f"Mark Selected Justified ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
                 bulk_update_transactions_by_ids(selected_ids, "Justified", category=cat_arg, user_excuse=batch_note or "Batch verified as justified.")
                 st.session_state["batch_select_all"] = False
+                st.session_state["batch_ed_ver"] += 1
                 trigger_auto_github_sync("batch mark justified")
                 st.rerun()
         with mb2:
             if st.button(f"Mark Selected Unjustified ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
                 bulk_update_transactions_by_ids(selected_ids, "Guilty / Bad Purchase", category=cat_arg, user_excuse=batch_note or "Batch marked unjustified.")
                 st.session_state["batch_select_all"] = False
+                st.session_state["batch_ed_ver"] += 1
                 trigger_auto_github_sync("batch mark unjustified")
                 st.rerun()
         with mb3:
             if st.button(f"Mark Selected Essential ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
                 bulk_update_transactions_by_ids(selected_ids, "Essential Pass", category=cat_arg, user_excuse=batch_note or "Batch marked essential.")
                 st.session_state["batch_select_all"] = False
+                st.session_state["batch_ed_ver"] += 1
                 trigger_auto_github_sync("batch mark essential")
                 st.rerun()
         with mb4:
             if st.button(f"Delete Selected ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
                 bulk_delete_transactions_by_ids(selected_ids)
                 st.session_state["batch_select_all"] = False
+                st.session_state["batch_ed_ver"] += 1
                 trigger_auto_github_sync("batch delete")
                 st.rerun()
 
