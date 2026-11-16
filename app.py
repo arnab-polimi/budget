@@ -257,8 +257,8 @@ with st.sidebar:
     st.markdown("##### GitHub Persistence")
     gh_repo = st.text_input(
         "Repository",
-        value=st.session_state.get("gh_repo", _get_secret("GITHUB_REPO", "")),
-        placeholder="username/budget_2027",
+        value=st.session_state.get("gh_repo", _get_secret("GITHUB_REPO", "arnab-polimi/budget")),
+        placeholder="arnab-polimi/budget",
     )
     gh_token = st.text_input(
         "Access Token",
