@@ -10,10 +10,12 @@ import importlib
 import bper_importer
 import database
 import ai_interrogator
+import financial_advisor
 
 importlib.reload(database)
 importlib.reload(bper_importer)
 importlib.reload(ai_interrogator)
+importlib.reload(financial_advisor)
 
 from database import (
     init_db,
@@ -37,6 +39,7 @@ from bper_importer import (
     parse_multiple_bper_pdfs,
 )
 from ai_interrogator import compute_opportunity_cost, interrogate_transaction
+from financial_advisor import compute_financial_intelligence
 
 st.set_page_config(
     page_title="Ledger 2027",
@@ -298,6 +301,7 @@ audit_tab_label = f"Audit ({pending_count})" if pending_count > 0 else "Audit"
 tabs = st.tabs(
     [
         "Overview",
+        "Advisory & Savings",
         "Log",
         audit_tab_label,
         "BPER Import",
@@ -504,9 +508,133 @@ with tabs[0]:
 
 
 # ==============================================================================
-# TAB 2: LOG TRANSACTION
+# TAB 2: ADVISORY & SAVINGS PLAN
 # ==============================================================================
 with tabs[1]:
+    intel = compute_financial_intelligence(all_tx_df, hourly_wage=hourly_wage)
+    if intel.get("empty"):
+        st.caption("No transaction data available for advisory analysis.")
+    else:
+        # Top Scorecard Row
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        sc1.metric(
+            "Financial Wisdom Score",
+            f"{intel['wisdom_score']} / 100",
+            f"{intel['deficit_months']}/{intel['n_months']} deficit months",
+            delta_color="off",
+        )
+        sc2.metric(
+            "Recoverable (This Period)",
+            f"€{intel['total_saveable_period']:,.2f}",
+            f"€{intel['total_saveable_annualized']:,.0f} / year pace",
+            delta_color="off",
+        )
+        sc3.metric(
+            "Recoverable (Per Month)",
+            f"€{intel['total_saveable_monthly']:,.2f}/mo",
+            "From 8 specific channels",
+            delta_color="off",
+        )
+        sc4.metric(
+            "Recommended Monthly Saving",
+            f"€{intel['recommended_save_floor']:,.0f} – €{intel['recommended_save_optimal']:,.0f}",
+            f"On €{intel['base_monthly_income']:,.0f} base salary",
+            delta_color="off",
+        )
+
+        st.write("")
+        diag_col, plan_col = st.columns([1.15, 1.0], gap="large")
+
+        with diag_col:
+            st.markdown("##### Executive Diagnosis — Are You Financially Wise?")
+            sb = intel["score_breakdown"]
+            st.markdown(
+                f"""
+                <div class="spec-card">
+                    <div class="spec-label">Assessment · {intel['rating_label']}</div>
+                    <div style="color:#D4D4D8; font-size:0.9rem; line-height:1.6; margin-top:8px;">
+                        <b>1. Where you are disciplined ({sb['Essential Overhead Control']}):</b> Your core living overhead is well-controlled. Rent (€600/mo), Eni utilities, In's Mercato & Bennet groceries (€64/mo), and Pellegrini Mensa (€3.05/meal) average <b>€{intel['essential_monthly']:,.0f}/month</b> ({intel['overhead_ratio_pct']}% of your €{intel['base_monthly_income']:,.0f} base Capgemini salary).<br/><br/>
+                        <b>2. Where capital is leaking ({sb['Cashflow Consistency']} consistency, {sb['BNPL & Fee Hygiene']} hygiene):</b> You ran a cashflow deficit in <b>{intel['deficit_months']} out of {intel['n_months']} months</b> (Apr, May, Aug, Sep), only staying net-positive overall because of June's €3,033 double/14th-month salary. That entire surplus was absorbed by <b>PayPal Paga in 3 Rate</b> (€922 across 23 installments), <b>unreturned Revolut top-ups</b> (€770 net), <b>retail shopping</b> (€900 at Amazon/Decathlon/PUMA/OVS), and <b>47 PayPal SDD micro-debits</b> that each triggered an avoidable €0.40 BPER commission.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with plan_col:
+            st.markdown("##### Monthly Savings Prescription")
+            st.markdown(
+                f"""
+                <div class="spec-card">
+                    <div class="spec-label">Monthly Allocation Target (Base Salary: €{intel['base_monthly_income']:,.0f}/mo)</div>
+                    <div class="spec-grid">
+                        <div>
+                            <div class="spec-label">1. Fixed Essentials</div>
+                            <div class="spec-value">€{intel['recommended_essential']:,.0f} / mo</div>
+                            <div style="font-size:0.76rem; color:#7D7D87;">Rent (€600), Utilities, Mensa, Groceries</div>
+                        </div>
+                        <div>
+                            <div class="spec-label">2. Automated Savings (Day 27)</div>
+                            <div class="spec-value" style="color:#10B981;">€{intel['recommended_save_floor']:,.0f} – €{intel['recommended_save_optimal']:,.0f} / mo</div>
+                            <div style="font-size:0.76rem; color:#7D7D87;">Transfer immediately on payday</div>
+                        </div>
+                        <div>
+                            <div class="spec-label">3. Discretionary & Revolut Cap</div>
+                            <div class="spec-value">€{intel['recommended_discretionary_cap']:,.0f} / mo</div>
+                            <div style="font-size:0.76rem; color:#7D7D87;">Hard ceiling across all wants & BNPL</div>
+                        </div>
+                        <div>
+                            <div class="spec-label">4. Wise Transfers Note</div>
+                            <div class="spec-value">€{intel['wise_total']:,.0f} total</div>
+                            <div style="font-size:0.76rem; color:#7D7D87;">Fund from payday savings or cap at €150/mo</div>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("##### Exact Places & Amounts You Could Have Saved (This Period & Per Month)")
+        st.caption(
+            f"Granular audit across {intel['n_months']} statement months showing exact merchant channels, actual spend, "
+            f"and recoverable savings (€{intel['total_saveable_period']:,.2f} over these {intel['n_months']} months / €{intel['total_saveable_monthly']:,.2f} per month)."
+        )
+        st.dataframe(
+            intel["leaks_df"],
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Total Spent (€)": st.column_config.NumberColumn("Actual Spent", format="€ %.2f"),
+                "Monthly Avg (€/mo)": st.column_config.NumberColumn("Monthly Avg", format="€ %.2f/mo"),
+                "Saveable This Period (€)": st.column_config.NumberColumn("Could Have Saved (Period)", format="€ %.2f"),
+                "Saveable Per Month (€/mo)": st.column_config.NumberColumn("Saveable / Month", format="€ %.2f/mo"),
+                "Labor Equivalent (h)": st.column_config.NumberColumn("Hours of Work", format="%.1f h"),
+                "10Y Compounded (€)": st.column_config.NumberColumn("10Y S&P 500 Value", format="€ %.2f"),
+            },
+        )
+
+        st.write("")
+        st.markdown("##### Month-by-Month Cashflow & Deficit Audit")
+        st.dataframe(
+            intel["monthly_summary_df"],
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Inflow (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                "Essential (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                "Discretionary & Retail (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                "Transfers & P2P (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                "Total Outflow (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                "Net Cashflow (€)": st.column_config.NumberColumn(format="€ %+.2f"),
+                "Savings Rate (%)": st.column_config.NumberColumn(format="%.1f%%"),
+            },
+        )
+
+
+# ==============================================================================
+# TAB 3: LOG TRANSACTION
+# ==============================================================================
+with tabs[2]:
     q_col1, q_col2 = st.columns([1.15, 1.0], gap="large")
 
     with q_col1:
@@ -637,9 +765,9 @@ with tabs[1]:
 
 
 # ==============================================================================
-# TAB 3: AUDIT ROOM
+# TAB 4: AUDIT ROOM
 # ==============================================================================
-with tabs[2]:
+with tabs[3]:
     suspect_choices_df = (
         all_tx_df[(all_tx_df["amount"] < 0) & (all_tx_df["verdict"].isin(["Pending Review", "Guilty / Bad Purchase"]))]
         if not all_tx_df.empty
@@ -832,9 +960,9 @@ with tabs[2]:
 
 
 # ==============================================================================
-# TAB 4: BPER BANK IMPORTER
+# TAB 5: BPER BANK IMPORTER
 # ==============================================================================
-with tabs[3]:
+with tabs[4]:
     st.markdown("##### BPER Statement Import")
     st.caption(
         "Upload BPER PDF statements (`Mod. 05.13.0011 Riepilogo Mensile`) or `.xlsx`/`.csv` exports, "
@@ -933,9 +1061,9 @@ with tabs[3]:
 
 
 # ==============================================================================
-# TAB 5: HOLDING VAULT (24-HOUR COOLING-OFF)
+# TAB 6: HOLDING VAULT (24-HOUR COOLING-OFF)
 # ==============================================================================
-with tabs[4]:
+with tabs[5]:
     v_col1, v_col2 = st.columns([1.0, 1.3], gap="large")
     with v_col1:
         st.markdown("##### 24-Hour Holding Vault")
@@ -1012,9 +1140,9 @@ with tabs[4]:
 
 
 # ==============================================================================
-# TAB 6: SETTINGS
+# TAB 7: SETTINGS
 # ==============================================================================
-with tabs[5]:
+with tabs[6]:
     s_col1, s_col2 = st.columns(2, gap="large")
     with s_col1:
         st.markdown("##### Financial Parameters")

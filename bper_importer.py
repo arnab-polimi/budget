@@ -78,17 +78,6 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
     ),
     (
         [
-            "ENI ", "IP ", "Q8", "TAMOIL", "ESSO", "SHELL", "BENZINA", "DISTRIBUTORE",
-            "TELEPASS", "UNIPOLMOVE", "AUTOSTRADE", "TRENITALIA", "ITALO", "ATM MILAN",
-            "CLESS TICKET ATM", "ATAC", "GTT.TO.IT", "GTT ", "TAP & GO TORINO", "DUOMO CORDUSIO",
-            "GARIBALDI M2", "LAMPUGNANO M1", "RATP PARIS", "APP TEC NAMUR", "UBER ", "FREENOW",
-            "TAXI", "LIME", "BIRD", "ENJOY", "SHARE NOW", "PARCHEGGIO", "EASYPARK",
-        ],
-        "Transport, Fuel & Transit",
-        "Essential Pass",
-    ),
-    (
-        [
             "ENEL", "ENI PLENITUDE", "ENI SPA - ENI REGOLAMENT", "A2A", "HERA", "IREN",
             "EDISON", "ACEA", "SORGENIA", "TIM ", "TELECOM ITALIA", "VODAFONE", "WINDTRE",
             "ILIAD", "FASTWEB", "SKY ", "AFFITTO", "DAVIDE MANCINI", "CANONE LOCAZIONE",
@@ -96,6 +85,17 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
             "CBILL", "F24",
         ],
         "Rent / Mortgage & Utilities",
+        "Essential Pass",
+    ),
+    (
+        [
+            "ENI STATION", "IP ", "Q8", "TAMOIL", "ESSO", "SHELL", "BENZINA", "DISTRIBUTORE",
+            "TELEPASS", "UNIPOLMOVE", "AUTOSTRADE", "TRENITALIA", "ITALO", "ATM MILAN",
+            "CLESS TICKET ATM", "ATAC", "GTT.TO.IT", "GTT ", "TAP & GO TORINO", "DUOMO CORDUSIO",
+            "GARIBALDI M2", "LAMPUGNANO M1", "RATP PARIS", "APP TEC NAMUR", "UBER ", "FREENOW",
+            "TAXI", "LIME", "BIRD", "ENJOY", "SHARE NOW", "PARCHEGGIO", "EASYPARK",
+        ],
+        "Transport, Fuel & Transit",
         "Essential Pass",
     ),
     (
@@ -230,11 +230,69 @@ def parse_italian_date(val: object) -> Optional[str]:
 
 def clean_bper_merchant(description: str) -> str:
     """
-    Extracts a clean, readable counterparty/merchant name from BPER's multi-line PDF & CSV descriptions.
+    Extracts a clean, canonical counterparty/merchant name from BPER's multi-line PDF & CSV descriptions.
     """
     desc = " ".join(str(description).replace("’", "'").split())
+    up = desc.upper()
 
-    # 1. Older BPER format: "... Carta n. **4521 MERCHANT NAME - CITY" or "... c/o: MERCHANT"
+    # Fast canonical merchant normalization so variants group together cleanly
+    if "DAVIDE MANCINI" in up or "AFFITTO" in up:
+        if not up.startswith(("COMMISSIONI", "COMM. BON.")):
+            return "Affitto (Davide Mancini)"
+    if "CAPGEMINI" in up or "EMOLUMENTI" in up:
+        return "Stipendio (Capgemini Italia)"
+    if "PELLEGRINI CM1726" in up or "PELLEGRINI" in up:
+        return "Pellegrini Mensa"
+    if "IN'S MERCATO" in up:
+        return "In's Mercato"
+    if "BENNET" in up:
+        return "Bennet"
+    if "GLOVO" in up:
+        return "Glovo"
+    if "DELIVEROO" in up:
+        return "Deliveroo"
+    if "PAGA IN 3 RATE" in up:
+        return "PayPal Paga in 3 Rate (BNPL)"
+    if "ADDEBITO SDD" in up and "PAYPAL" in up:
+        return "PayPal SDD"
+    if "COMMISSIONI" in up and "PAYPAL" in up:
+        return "Commissione BPER (PayPal SDD)"
+    if up.startswith(("COMMISSIONI", "COMM. BON.")):
+        return "Commissione Bonifico BPER"
+    if "ENI SPA - ENI REGOLAMENT" in up:
+        return "Eni Plenitude (Gas & Luce)"
+    if "REVOLUT" in up:
+        if "SENT FROM REVOLUT" in up or "A FAVORE DI ARNAB MONDAL" in up:
+            return "Revolut (Inbound Transfer)"
+        return "Revolut Top-Up / Transfer"
+    if "WISE" in up:
+        return "Wise Transfer"
+    if "AMAZON" in up or "AMZN" in up:
+        return "Amazon"
+    if "DECATHLON" in up:
+        return "Decathlon"
+    if "MEDIAWORLD" in up:
+        return "MediaWorld"
+    if "SKINPORT" in up:
+        return "Skinport GmbH"
+    if "VEENA CHATTERJEE" in up:
+        return "Bonifico (Veena Chatterjee)"
+    if "CONSULATE GENERAL OF INDIA" in up:
+        return "Consulate General of India"
+    if "LA LOCOMOTIVA" in up:
+        return "La Locomotiva"
+    if "GTT.TO.IT" in up or "TAP & GO TORINO" in up:
+        return "GTT Torino Transit"
+    if "ATM MILAN" in up or "DUOMO CORDUSIO" in up or "GARIBALDI M2" in up or "LAMPUGNANO M1" in up:
+        return "ATM Milano Transit"
+    if "RATP PARIS" in up:
+        return "RATP Paris Transit"
+    if "GOOGLE PLAY" in up:
+        return "Google Play"
+    if "GOOGLE*GOOGLE ONE" in up:
+        return "Google One"
+
+    # 1. Older BPER format: "... c/o: MERCHANT" or "... Carta n. **4521 MERCHANT NAME - CITY"
     m_co = re.search(r"\bc/o:\s*(.+?)$", desc, flags=re.IGNORECASE)
     if m_co:
         cleaned = m_co.group(1).strip(" -:/")
@@ -255,63 +313,14 @@ def clean_bper_merchant(description: str) -> str:
     )
     if m_int:
         cleaned = m_int.group(1).strip(" -:/")
-        # Strip trailing city/country tags like "TORINO ITA" or "MILANO ITA" or "DUBLIN IRL" if merchant is long enough
-        cleaned_short = re.sub(r"\s+(?:TORINO|MILANO|GRUGLIASCO|LUXEMBOURG|DUBLIN|BRUXELLES)\s+(?:ITA|LUX|IRL|BEL)\b.*$", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned_short = re.sub(
+            r"\s+(?:TORINO|MILANO|GRUGLIASCO|LUXEMBOURG|DUBLIN|BRUXELLES)\s+(?:ITA|LUX|IRL|BEL)\b.*$",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        ).strip()
         res = cleaned_short if len(cleaned_short) >= 3 else cleaned
-        # Clean random Glovo order codes like "Glovo 01OCT TOXESMKEE" -> "Glovo"
-        if res.upper().startswith("GLOVO "):
-            return "Glovo"
-        if res.upper().startswith("REVOLUT"):
-            return "Revolut"
-        if res.upper().startswith("AMAZON") or res.upper().startswith("WWW.AMAZON"):
-            return "Amazon"
-        if "PELLEGRINI CM1726" in res.upper():
-            return "Pellegrini Mensa"
-        if "IN'S MERCATO" in res.upper():
-            return "In's Mercato"
         return res[:42]
-
-    # 3. Direct Debit SDD: "ADDEBITO SDD PayPal Europe S.a.r.l. ..." or "ADDEBITO SDD Eni Spa..."
-    if desc.upper().startswith("ADDEBITO SDD"):
-        if "PAYPAL" in desc.upper():
-            return "PayPal SDD"
-        if "ENI SPA" in desc.upper():
-            return "Eni Plenitude / Gas & Luce"
-        m_sdd = re.search(r"ADDEBITO SDD\s+(.+?)(?:\s+N:|\s+ID:|$)", desc, flags=re.IGNORECASE)
-        if m_sdd:
-            return m_sdd.group(1).strip()[:42]
-
-    # 4. Bank Commissions
-    if desc.upper().startswith("COMMISSIONI") or desc.upper().startswith("COMM. BON."):
-        if "PAYPAL" in desc.upper():
-            return "Commissione BPER (PayPal SDD)"
-        if "BONIFIC" in desc.upper() or "SCT" in desc.upper() or "ISTANTANEO" in desc.upper():
-            return "Commissione Bonifico BPER"
-        return "Commissione BPER"
-
-    # 5. Transfers / Rent / Salary
-    if "DAVIDE MANCINI" in desc.upper() or "AFFITTO" in desc.upper():
-        return "Affitto (Davide Mancini)"
-    if "CAPGEMINI" in desc.upper() or "EMOLUMENTI" in desc.upper():
-        return "Stipendio (Capgemini Italia)"
-    if "SKINPORT" in desc.upper():
-        return "Skinport GmbH"
-    if "VEENA CHATTERJEE" in desc.upper():
-        return "Bonifico (Veena Chatterjee)"
-    if "CONSULATE GENERAL OF INDIA" in desc.upper():
-        return "Consulate General of India"
-
-    # 6. Generic POS / SEPA patterns
-    patterns = [
-        r"(?:PRESSO|C/O|ESERCENTE|FAVORE DI|BENEFICIARIO)[:\s]+(.+?)(?:\s+CARTA\b|\s+PAN\b|\s+DEL\s+\d|\s+ORE\s+\d|\s+EUR\b|$)",
-        r"PAGAMENTO\s+(?:POS|CARTA|CONTACTLESS|APPLE PAY|GOOGLE PAY)\s+(?:DEL\s+\d{2}[/-]\d{2}[/-]\d{2,4}\s+)?(?:ORE\s+\d{2}[:.]\d{2}\s+)?(.+)",
-    ]
-    for pat in patterns:
-        m = re.search(pat, desc, flags=re.IGNORECASE)
-        if m:
-            cleaned = m.group(1).strip(" -:/")
-            if len(cleaned) >= 3:
-                return cleaned[:42]
 
     return desc[:42]
 
