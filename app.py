@@ -26,6 +26,8 @@ from database import (
     add_transaction,
     update_transaction_verdict,
     bulk_update_merchant_verdict,
+    bulk_update_transactions_by_ids,
+    bulk_delete_transactions_by_ids,
     delete_transaction,
     get_transactions_df,
     add_to_wishlist,
@@ -846,7 +848,7 @@ with tabs[2]:
 # TAB 4: AUDIT ROOM
 # ==============================================================================
 with tabs[3]:
-    q_filter_col1, q_filter_col2 = st.columns([1.2, 2.0])
+    q_filter_col1, q_filter_col2, q_filter_col3 = st.columns([1.2, 1.0, 1.2])
     with q_filter_col1:
         audit_queue_mode = st.radio(
             "Queue View",
@@ -854,6 +856,15 @@ with tabs[3]:
             horizontal=True,
             label_visibility="collapsed",
         )
+    with q_filter_col2:
+        audit_selection_mode = st.radio(
+            "Selection Mode",
+            options=["Multi-Select Batch Table", "Single Live Audit"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+    with q_filter_col3:
+        audit_search = st.text_input("Filter queue by merchant or date...", placeholder="e.g. PayPal, Glovo, 2026-10...", label_visibility="collapsed")
 
     if audit_queue_mode == "Pending Review Only":
         target_verdicts = ["Pending Review"]
@@ -863,10 +874,18 @@ with tabs[3]:
         target_verdicts = ["Justified"]
 
     suspect_choices_df = (
-        all_tx_df[(all_tx_df["amount"] < 0) & (all_tx_df["verdict"].isin(target_verdicts))]
+        all_tx_df[(all_tx_df["amount"] < 0) & (all_tx_df["verdict"].isin(target_verdicts))].copy()
         if not all_tx_df.empty
         else pd.DataFrame()
     )
+    if audit_search and not suspect_choices_df.empty:
+        s_mask = (
+            suspect_choices_df["merchant"].str.contains(audit_search, case=False, na=False)
+            | suspect_choices_df["description"].str.contains(audit_search, case=False, na=False)
+            | suspect_choices_df["category"].str.contains(audit_search, case=False, na=False)
+            | suspect_choices_df["tx_date"].str.contains(audit_search, case=False, na=False)
+        )
+        suspect_choices_df = suspect_choices_df[s_mask]
 
     if suspect_choices_df.empty:
         st.markdown(
@@ -877,6 +896,93 @@ with tabs[3]:
             f"</div></div>",
             unsafe_allow_html=True,
         )
+    elif audit_selection_mode == "Multi-Select Batch Table":
+        st.markdown(f"##### Select Multiple Transactions to Audit Together ({len(suspect_choices_df)} in view)")
+
+        sel_ctrl1, sel_ctrl2, sel_ctrl3 = st.columns([0.6, 0.6, 2.8])
+        with sel_ctrl1:
+            if st.button("Select All in View", width="stretch"):
+                st.session_state["batch_select_all"] = True
+        with sel_ctrl2:
+            if st.button("Clear Selection", width="stretch"):
+                st.session_state["batch_select_all"] = False
+
+        default_check = bool(st.session_state.get("batch_select_all", False))
+        batch_df = suspect_choices_df[["id", "tx_date", "merchant", "category", "amount", "verdict", "description"]].copy()
+        batch_df.insert(0, "Select", default_check)
+
+        edited_batch = st.data_editor(
+            batch_df,
+            width="stretch",
+            hide_index=True,
+            height=380,
+            disabled=["id", "tx_date", "merchant", "amount", "verdict", "description"],
+            column_config={
+                "Select": st.column_config.CheckboxColumn("Select", default=False),
+                "id": st.column_config.NumberColumn("ID", width="small"),
+                "tx_date": "Date",
+                "merchant": "Merchant",
+                "category": st.column_config.SelectboxColumn("Category", options=category_list),
+                "amount": st.column_config.NumberColumn("Amount", format="€ %.2f"),
+                "verdict": "Current Status",
+                "description": "Raw Bank Description",
+            },
+            key="multi_audit_editor",
+        )
+
+        selected_rows = edited_batch[edited_batch["Select"] == True]
+        selected_ids = selected_rows["id"].astype(int).tolist()
+        selected_total = abs(float(selected_rows["amount"].sum())) if not selected_rows.empty else 0.0
+
+        st.markdown(
+            f"<div class='spec-card' style='padding:12px 16px;'>"
+            f"<div class='spec-label'>Batch Selection</div>"
+            f"<div class='spec-value'>{len(selected_ids)} transaction(s) selected  ·  Total: €{selected_total:,.2f}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        act_col1, act_col2 = st.columns([1.2, 1.8])
+        with act_col1:
+            batch_cat_override = st.selectbox(
+                "Optional Category Override for Selected",
+                options=["(Use row category)"] + category_list,
+                label_visibility="collapsed",
+            )
+        with act_col2:
+            batch_note = st.text_input(
+                "Shared Audit Note / Rationale (Optional)",
+                placeholder="Optional rationale for all selected transactions...",
+                label_visibility="collapsed",
+            )
+
+        mb1, mb2, mb3, mb4 = st.columns(4)
+        cat_arg = None if batch_cat_override == "(Use row category)" else batch_cat_override
+        with mb1:
+            if st.button(f"Mark Selected Justified ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
+                bulk_update_transactions_by_ids(selected_ids, "Justified", category=cat_arg, user_excuse=batch_note or "Batch verified as justified.")
+                st.session_state["batch_select_all"] = False
+                trigger_auto_github_sync("batch mark justified")
+                st.rerun()
+        with mb2:
+            if st.button(f"Mark Selected Unjustified ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
+                bulk_update_transactions_by_ids(selected_ids, "Guilty / Bad Purchase", category=cat_arg, user_excuse=batch_note or "Batch marked unjustified.")
+                st.session_state["batch_select_all"] = False
+                trigger_auto_github_sync("batch mark unjustified")
+                st.rerun()
+        with mb3:
+            if st.button(f"Mark Selected Essential ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
+                bulk_update_transactions_by_ids(selected_ids, "Essential Pass", category=cat_arg, user_excuse=batch_note or "Batch marked essential.")
+                st.session_state["batch_select_all"] = False
+                trigger_auto_github_sync("batch mark essential")
+                st.rerun()
+        with mb4:
+            if st.button(f"Delete Selected ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
+                bulk_delete_transactions_by_ids(selected_ids)
+                st.session_state["batch_select_all"] = False
+                trigger_auto_github_sync("batch delete")
+                st.rerun()
+
     else:
         col_list, col_chat = st.columns([1.0, 1.5], gap="large")
 

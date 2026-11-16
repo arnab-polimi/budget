@@ -286,6 +286,57 @@ def delete_transaction(tx_id: int) -> None:
     conn.close()
 
 
+def bulk_update_transactions_by_ids(
+    tx_ids: List[int],
+    verdict: str,
+    category: Optional[str] = None,
+    user_excuse: str = "",
+) -> int:
+    """Updates multiple transactions by their IDs in one batch."""
+    if not tx_ids:
+        return 0
+    conn = get_connection()
+    cur = conn.cursor()
+    regret = 85 if verdict == "Guilty / Bad Purchase" else (15 if verdict == "Justified" else 0)
+    note = user_excuse.strip() if user_excuse.strip() else f"Batch classified as {verdict}."
+    placeholders = ",".join("?" for _ in tx_ids)
+    if category:
+        cur.execute(
+            f"""
+            UPDATE transactions
+            SET verdict = ?, regret_score = ?, user_excuse = ?, ai_roast = ?, category = ?
+            WHERE id IN ({placeholders})
+            """,
+            [verdict, regret, user_excuse.strip(), note, category] + [int(x) for x in tx_ids],
+        )
+    else:
+        cur.execute(
+            f"""
+            UPDATE transactions
+            SET verdict = ?, regret_score = ?, user_excuse = ?, ai_roast = ?
+            WHERE id IN ({placeholders})
+            """,
+            [verdict, regret, user_excuse.strip(), note] + [int(x) for x in tx_ids],
+        )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed
+
+
+def bulk_delete_transactions_by_ids(tx_ids: List[int]) -> int:
+    if not tx_ids:
+        return 0
+    conn = get_connection()
+    cur = conn.cursor()
+    placeholders = ",".join("?" for _ in tx_ids)
+    cur.execute(f"DELETE FROM transactions WHERE id IN ({placeholders})", [int(x) for x in tx_ids])
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed
+
+
 def bulk_update_merchant_verdict(merchant: str, verdict: str, category: Optional[str] = None) -> int:
     """Updates all expenses for a given canonical merchant to the specified verdict (and optional category)."""
     conn = get_connection()
