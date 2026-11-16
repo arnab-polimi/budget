@@ -286,6 +286,36 @@ def delete_transaction(tx_id: int) -> None:
     conn.close()
 
 
+def bulk_update_merchant_verdict(merchant: str, verdict: str, category: Optional[str] = None) -> int:
+    """Updates all expenses for a given canonical merchant to the specified verdict (and optional category)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    regret = 85 if verdict == "Guilty / Bad Purchase" else (15 if verdict == "Justified" else 0)
+    note = f"Bulk classified as {verdict}."
+    if category:
+        cur.execute(
+            """
+            UPDATE transactions
+            SET verdict = ?, regret_score = ?, ai_roast = ?, category = ?
+            WHERE merchant = ? AND amount < 0
+            """,
+            (verdict, regret, note, category, merchant),
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE transactions
+            SET verdict = ?, regret_score = ?, ai_roast = ?
+            WHERE merchant = ? AND amount < 0
+            """,
+            (verdict, regret, note, merchant),
+        )
+    changed = cur.rowcount
+    conn.commit()
+    conn.close()
+    return changed
+
+
 def get_transactions_df(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,

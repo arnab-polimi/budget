@@ -25,6 +25,7 @@ from database import (
     update_category_budget,
     add_transaction,
     update_transaction_verdict,
+    bulk_update_merchant_verdict,
     delete_transaction,
     get_transactions_df,
     add_to_wishlist,
@@ -511,16 +512,55 @@ with tabs[0]:
 # TAB 2: ADVISORY & SAVINGS PLAN
 # ==============================================================================
 with tabs[1]:
-    intel = compute_financial_intelligence(all_tx_df, hourly_wage=hourly_wage)
+    with st.expander("Interactive Savings Simulator & Audit Filter", expanded=False):
+        st.caption(
+            "Adjust your target reduction percentage for each channel, or toggle whether transactions you already cleared as 'Justified' are excluded from savings leaks."
+        )
+        include_justified_toggle = st.checkbox(
+            "Include 'Justified' transactions in leak calculations (uncheck so auditing transactions as Justified removes them from leaks)",
+            value=False,
+        )
+        sl1, sl2, sl3, sl4 = st.columns(4)
+        with sl1:
+            cut_bnpl = st.slider("PayPal 3-Rate Cut (%)", 0, 100, 75, 5) / 100.0
+            cut_revolut = st.slider("Revolut Net Cut (%)", 0, 100, 50, 5) / 100.0
+        with sl2:
+            cut_retail = st.slider("Retail / Apparel Cut (%)", 0, 100, 50, 5) / 100.0
+            cut_amazon = st.slider("Amazon Cut (%)", 0, 100, 60, 5) / 100.0
+        with sl3:
+            cut_delivery = st.slider("Glovo / Takeout Cut (%)", 0, 100, 80, 5) / 100.0
+            cut_dining = st.slider("Dining / Events Cut (%)", 0, 100, 40, 5) / 100.0
+        with sl4:
+            cut_ppsdd = st.slider("PayPal SDD Cut (%)", 0, 100, 60, 5) / 100.0
+            cut_fees = st.slider("BPER SDD Fees Cut (%)", 0, 100, 100, 10) / 100.0
+
+    custom_ratios = {
+        "bnpl": cut_bnpl,
+        "revolut": cut_revolut,
+        "retail": cut_retail,
+        "amazon": cut_amazon,
+        "delivery": cut_delivery,
+        "dining": cut_dining,
+        "paypal_sdd": cut_ppsdd,
+        "bper_fees": cut_fees,
+    }
+
+    intel = compute_financial_intelligence(
+        all_tx_df,
+        hourly_wage=hourly_wage,
+        custom_cut_ratios=custom_ratios,
+        include_justified_in_leaks=include_justified_toggle,
+    )
     if intel.get("empty"):
         st.caption("No transaction data available for advisory analysis.")
     else:
+        astats = intel["audit_stats"]
         # Top Scorecard Row
         sc1, sc2, sc3, sc4 = st.columns(4)
         sc1.metric(
             "Financial Wisdom Score",
             f"{intel['wisdom_score']} / 100",
-            f"{intel['deficit_months']}/{intel['n_months']} deficit months",
+            f"Audit {astats['completion_pct']:.0f}% complete ({astats['justified_cnt']} justified, {astats['guilty_cnt']} unjustified)",
             delta_color="off",
         )
         sc2.metric(
@@ -532,7 +572,7 @@ with tabs[1]:
         sc3.metric(
             "Recoverable (Per Month)",
             f"€{intel['total_saveable_monthly']:,.2f}/mo",
-            "From 8 specific channels",
+            f"€{astats['justified_eur']:,.0f} cleared via audit",
             delta_color="off",
         )
         sc4.metric(
@@ -546,15 +586,16 @@ with tabs[1]:
         diag_col, plan_col = st.columns([1.15, 1.0], gap="large")
 
         with diag_col:
-            st.markdown("##### Executive Diagnosis — Are You Financially Wise?")
+            st.markdown("##### Executive Diagnosis — Reactive to Your Audit")
             sb = intel["score_breakdown"]
             st.markdown(
                 f"""
                 <div class="spec-card">
                     <div class="spec-label">Assessment · {intel['rating_label']}</div>
                     <div style="color:#D4D4D8; font-size:0.9rem; line-height:1.6; margin-top:8px;">
-                        <b>1. Where you are disciplined ({sb['Essential Overhead Control']}):</b> Your core living overhead is well-controlled. Rent (€600/mo), Eni utilities, In's Mercato & Bennet groceries (€64/mo), and Pellegrini Mensa (€3.05/meal) average <b>€{intel['essential_monthly']:,.0f}/month</b> ({intel['overhead_ratio_pct']}% of your €{intel['base_monthly_income']:,.0f} base Capgemini salary).<br/><br/>
-                        <b>2. Where capital is leaking ({sb['Cashflow Consistency']} consistency, {sb['BNPL & Fee Hygiene']} hygiene):</b> You ran a cashflow deficit in <b>{intel['deficit_months']} out of {intel['n_months']} months</b> (Apr, May, Aug, Sep), only staying net-positive overall because of June's €3,033 double/14th-month salary. That entire surplus was absorbed by <b>PayPal Paga in 3 Rate</b> (€922 across 23 installments), <b>unreturned Revolut top-ups</b> (€770 net), <b>retail shopping</b> (€900 at Amazon/Decathlon/PUMA/OVS), and <b>47 PayPal SDD micro-debits</b> that each triggered an avoidable €0.40 BPER commission.
+                        <b>1. Core Overhead ({sb['Essential Overhead Control']}):</b> Fixed essentials average <b>€{intel['essential_monthly']:,.0f}/month</b> ({intel['overhead_ratio_pct']}% of your €{intel['base_monthly_income']:,.0f} base salary).<br/>
+                        <b>2. Audit & Impulse Hygiene ({sb['Audit & Impulse Hygiene']}):</b> You have reviewed <b>{astats['completion_pct']:.1f}%</b> of non-essential transactions — clearing <b>€{astats['justified_eur']:,.2f}</b> as Justified, confirming <b>€{astats['guilty_eur']:,.2f}</b> as Unjustified, with <b>€{astats['pending_eur']:,.2f}</b> ({astats['pending_cnt']} items) still pending review.<br/>
+                        <b>3. Cashflow Consistency ({sb['Cashflow Consistency']}):</b> Ran a deficit in <b>{intel['deficit_months']} of {intel['n_months']} months</b> (Apr, May, Aug, Sep). As you justify legitimate expenses in the <b>Audit</b> tab (or below), your Wisdom Score rises and cleared amounts drop out of the leak table automatically.
                     </div>
                 </div>
                 """,
@@ -586,7 +627,7 @@ with tabs[1]:
                         <div>
                             <div class="spec-label">4. Wise Transfers Note</div>
                             <div class="spec-value">€{intel['wise_total']:,.0f} total</div>
-                            <div style="font-size:0.76rem; color:#7D7D87;">Fund from payday savings or cap at €150/mo</div>
+                            <div style="font-size:0.76rem; color:#7D7D87;">Mark as Justified or Savings below if investments</div>
                         </div>
                     </div>
                 </div>
@@ -594,19 +635,56 @@ with tabs[1]:
                 unsafe_allow_html=True,
             )
 
-        st.markdown("##### Exact Places & Amounts You Could Have Saved (This Period & Per Month)")
-        st.caption(
-            f"Granular audit across {intel['n_months']} statement months showing exact merchant channels, actual spend, "
-            f"and recoverable savings (€{intel['total_saveable_period']:,.2f} over these {intel['n_months']} months / €{intel['total_saveable_monthly']:,.2f} per month)."
+        st.markdown("##### Fast Bulk Merchant Audit (Instant Recalculation)")
+        st.caption("Classify all transactions for a recurring merchant at once and watch the Wisdom Score and Recoverable Savings update immediately.")
+        bm_col1, bm_col2, bm_col3, bm_col4 = st.columns([1.4, 1.1, 1.1, 0.8])
+        expense_merchants = (
+            all_tx_df[all_tx_df["amount"] < 0]
+            .groupby("merchant")["amount"]
+            .agg(cnt="count", total=lambda s: abs(s.sum()))
+            .reset_index()
+            .sort_values("total", ascending=False)
         )
+        merchant_options = {
+            f"{r['merchant']} ({r['cnt']} tx · €{r['total']:,.2f})": r["merchant"]
+            for _, r in expense_merchants.iterrows()
+        }
+        with bm_col1:
+            sel_m_label = st.selectbox("Merchant", options=list(merchant_options.keys()), label_visibility="collapsed")
+            sel_m_name = merchant_options[sel_m_label]
+        with bm_col2:
+            sel_m_verdict = st.selectbox(
+                "New Verdict",
+                options=["Justified", "Guilty / Bad Purchase", "Essential Pass", "Pending Review"],
+                label_visibility="collapsed",
+            )
+        with bm_col3:
+            sel_m_cat = st.selectbox(
+                "Optional Category Override",
+                options=["(Keep current category)"] + category_list,
+                label_visibility="collapsed",
+            )
+        with bm_col4:
+            if st.button("Apply to All", width="stretch"):
+                cat_override = None if sel_m_cat == "(Keep current category)" else sel_m_cat
+                updated_n = bulk_update_merchant_verdict(sel_m_name, sel_m_verdict, category=cat_override)
+                trigger_auto_github_sync(f"bulk audit {sel_m_name}")
+                st.toast(f"Updated {updated_n} transactions for {sel_m_name} to {sel_m_verdict}.")
+                st.rerun()
+
+        st.write("")
+        st.markdown("##### Exact Places & Amounts You Could Have Saved (Live Audit-Adjusted)")
+        display_leaks = intel["leaks_df"].drop(columns=["key"], errors="ignore")
         st.dataframe(
-            intel["leaks_df"],
+            display_leaks,
             width="stretch",
             hide_index=True,
             column_config={
-                "Total Spent (€)": st.column_config.NumberColumn("Actual Spent", format="€ %.2f"),
-                "Monthly Avg (€/mo)": st.column_config.NumberColumn("Monthly Avg", format="€ %.2f/mo"),
-                "Saveable This Period (€)": st.column_config.NumberColumn("Could Have Saved (Period)", format="€ %.2f"),
+                "Total Spent (€)": st.column_config.NumberColumn("Total Spent", format="€ %.2f"),
+                "Cleared / Justified (€)": st.column_config.NumberColumn("Cleared (Justified)", format="€ %.2f"),
+                "Unjustified / Pending (€)": st.column_config.NumberColumn("Unjustified / Pending", format="€ %.2f"),
+                "Target Cut (%)": st.column_config.NumberColumn("Cut %", format="%d%%"),
+                "Saveable This Period (€)": st.column_config.NumberColumn("Saveable (Period)", format="€ %.2f"),
                 "Saveable Per Month (€/mo)": st.column_config.NumberColumn("Saveable / Month", format="€ %.2f/mo"),
                 "Labor Equivalent (h)": st.column_config.NumberColumn("Hours of Work", format="%.1f h"),
                 "10Y Compounded (€)": st.column_config.NumberColumn("10Y S&P 500 Value", format="€ %.2f"),
