@@ -846,28 +846,44 @@ with tabs[2]:
 # TAB 4: AUDIT ROOM
 # ==============================================================================
 with tabs[3]:
+    q_filter_col1, q_filter_col2 = st.columns([1.2, 2.0])
+    with q_filter_col1:
+        audit_queue_mode = st.radio(
+            "Queue View",
+            options=["Pending Review Only", "Unjustified (Reviewed)", "Justified (Cleared)"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+    if audit_queue_mode == "Pending Review Only":
+        target_verdicts = ["Pending Review"]
+    elif audit_queue_mode == "Unjustified (Reviewed)":
+        target_verdicts = ["Guilty / Bad Purchase"]
+    else:
+        target_verdicts = ["Justified"]
+
     suspect_choices_df = (
-        all_tx_df[(all_tx_df["amount"] < 0) & (all_tx_df["verdict"].isin(["Pending Review", "Guilty / Bad Purchase"]))]
+        all_tx_df[(all_tx_df["amount"] < 0) & (all_tx_df["verdict"].isin(target_verdicts))]
         if not all_tx_df.empty
         else pd.DataFrame()
     )
 
     if suspect_choices_df.empty:
         st.markdown(
-            "<div class='spec-card'>"
-            "<div class='spec-label'>Audit Queue Empty</div>"
-            "<div style='color:#9E9EA8; font-size:0.9rem; margin-top:4px;'>"
-            "All discretionary and flagged transactions have been reviewed."
-            "</div></div>",
+            f"<div class='spec-card'>"
+            f"<div class='spec-label'>{audit_queue_mode} — Empty</div>"
+            f"<div style='color:#9E9EA8; font-size:0.9rem; margin-top:4px;'>"
+            f"No transactions in this view."
+            f"</div></div>",
             unsafe_allow_html=True,
         )
     else:
         col_list, col_chat = st.columns([1.0, 1.5], gap="large")
 
         with col_list:
-            st.markdown(f"##### Flagged Transactions ({len(suspect_choices_df)})")
+            st.markdown(f"##### {audit_queue_mode} ({len(suspect_choices_df)})")
             options_map = {
-                f"{row['tx_date']}  ·  {row['merchant']}  ·  €{abs(row['amount']):.2f}": row["id"]
+                f"[#{row['id']}]  {row['tx_date']}  ·  {row['merchant']}  ·  €{abs(row['amount']):.2f}": row["id"]
                 for _, row in suspect_choices_df.iterrows()
             }
             selected_label = st.radio(
