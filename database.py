@@ -459,7 +459,11 @@ def reclassify_all_transactions() -> int:
     cur = conn.cursor()
     updated = 0
     for tx_id, m, cat, default_verd, rec, old_verd in parsed_updates:
-        is_frequent_committed = (m not in variable_discretionary) and (len(merchant_months.get(m, set())) >= 3)
+        is_frequent_committed = (
+            (m not in variable_discretionary)
+            and (cat != "Travel & Vacations")
+            and (len(merchant_months.get(m, set())) >= 3)
+        )
         final_rec = "Recurring" if (rec == "Recurring" or is_frequent_committed) else "One-Time"
         final_verd = old_verd
         if old_verd == "Pending Review" and default_verd in ("Essential Pass", "Justified"):

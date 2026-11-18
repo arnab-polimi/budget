@@ -432,8 +432,10 @@ def infer_default_recurrence(description: str, merchant: str, category: str, amo
     if "WISE" in up_merch and abs(float(amount)) > 300.0:
         return "Recurring"
 
-    # Explicit One-Time repairs, travel groceries, or laundry
+    # Explicit One-Time repairs, travel groceries, laundry, or large annual flight BNPL (>= €250)
     if any(k in up_desc for k in ("DANNI FINESTRA", "LAUNDRY 2 DAY", "ALBERT HEIJN", "AH TO GO", "SPAR ", "CRF MKT")):
+        return "One-Time"
+    if "PAGA IN 3 RATE" in up_desc and abs(float(amount)) >= 250.0:
         return "One-Time"
 
     # Known recurring commitments, subscriptions, utilities, PAC, mensa, groceries
@@ -501,6 +503,10 @@ def classify_bper_transaction(description: str, amount: float, suspect_threshold
     # Monthly €100 stock/fund investments ("SOTTOSCRIZIONI FONDI E SICAV")
     if any(k in upper_desc for k in ("SOTTOSCRIZIONI FONDI", "SOTTOSCRIZIONE ETICA", "FONDI E SICAV")):
         return "Savings & Investments", "Justified"
+
+    # Large PayPal Paga in 3 Rate (>= €250) are annual flight tickets (e.g. India) -> Essential One-Time Travel
+    if "PAGA IN 3 RATE" in upper_desc and abs(float(amount)) >= 250.0:
+        return "Travel & Vacations", "Essential Pass"
 
     # Wise transfers > €300 include the 12,000 INR investment allocation
     if "WISE" in upper_desc and abs(float(amount)) > 300.0:

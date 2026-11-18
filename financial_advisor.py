@@ -276,13 +276,10 @@ def compute_financial_intelligence(
             }
         )
 
-    # 1. PayPal Online Shopping & Paga in 3 Rate (BNPL)
+    # 1. PayPal Online Shopping & Paga in 3 Rate (BNPL) (excludes items reclassified to Travel/Essential etc.)
     bnpl_df = outflow_df[
-        (outflow_df["merchant"] == "PayPal Paga in 3 Rate (BNPL)")
-        | (
-            (outflow_df["category"] == "Online Shopping & PayPal")
-            & (~outflow_df["merchant"].isin(["PayPal SDD", "Commissione BPER (PayPal SDD)"]))
-        )
+        (outflow_df["category"] == "Online Shopping & PayPal")
+        & (~outflow_df["merchant"].isin(["PayPal SDD", "Commissione BPER (PayPal SDD)"]))
     ]
     _add_audit_reactive_leak(
         "bnpl",
