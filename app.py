@@ -21,6 +21,9 @@ from database import (
     init_db,
     get_all_settings,
     set_setting,
+    encode_secret,
+    decode_secret,
+    get_local_git_credential_token,
     get_categories_df,
     update_category_budget,
     add_transaction,
@@ -200,6 +203,25 @@ ai_provider = settings.get("ai_provider", "gemini")
 ai_model = settings.get("ai_model", "gemini-2.5-flash")
 strictness = settings.get("interrogator_strictness", "Direct & Analytical")
 
+# Inbuilt & Persisted Credentials (auto-populates from DB / st.secrets / local Git credential store)
+inbuilt_gh_token = (
+    decode_secret(settings.get("github_token_b64", ""))
+    or _get_secret("GITHUB_TOKEN")
+    or get_local_git_credential_token()
+)
+if inbuilt_gh_token and not settings.get("github_token_b64"):
+    set_setting("github_token_b64", encode_secret(inbuilt_gh_token))
+
+inbuilt_ai_key = (
+    decode_secret(settings.get("gemini_api_key_b64", ""))
+    or _get_secret("GEMINI_API_KEY" if ai_provider == "gemini" else "OPENAI_API_KEY")
+)
+if inbuilt_ai_key and not settings.get("gemini_api_key_b64"):
+    set_setting("gemini_api_key_b64", encode_secret(inbuilt_ai_key))
+
+inbuilt_gh_repo = settings.get("github_repo", "") or _get_secret("GITHUB_REPO", "arnab-polimi/budget")
+inbuilt_gh_branch = settings.get("github_branch", "") or _get_secret("GITHUB_BRANCH", "main")
+
 categories_df = get_categories_df()
 category_list = categories_df["name"].tolist()
 tier_map = dict(zip(categories_df["name"], categories_df["tier"]))
@@ -240,15 +262,17 @@ with st.sidebar:
         "Provider",
         options=["gemini", "openai", "ollama"],
         index=["gemini", "openai", "ollama"].index(ai_provider) if ai_provider in ["gemini", "openai", "ollama"] else 0,
-        help="Uses your API key if provided, otherwise runs the local rule-based auditor.",
+        help="Uses your saved API key if provided, otherwise runs the local rule-based auditor.",
     )
-    default_key = _get_secret("GEMINI_API_KEY" if provider_choice == "gemini" else "OPENAI_API_KEY")
     api_key_input = st.text_input(
-        "API Key (Optional)",
-        value=st.session_state.get("user_api_key", default_key),
+        "API Key (Saved Inbuilt)",
+        value=st.session_state.get("user_api_key", inbuilt_ai_key),
         type="password",
-        placeholder="Leave blank for offline auditor",
+        placeholder="Paste once to save inbuilt permanently",
     )
+    if api_key_input != inbuilt_ai_key:
+        set_setting("gemini_api_key_b64", encode_secret(api_key_input))
+        trigger_auto_github_sync("save inbuilt AI key")
     st.session_state["user_api_key"] = api_key_input
 
     tone_options = ["Measured", "Direct & Analytical", "Strict"]
@@ -263,24 +287,31 @@ with st.sidebar:
 
     st.divider()
     st.markdown("##### GitHub Persistence")
-    gh_repo = st.text_input(
-        "Repository",
-        value=st.session_state.get("gh_repo", _get_secret("GITHUB_REPO", "arnab-polimi/budget")),
-        placeholder="arnab-polimi/budget",
-    )
-    gh_token = st.text_input(
-        "Access Token",
-        value=st.session_state.get("gh_token", _get_secret("GITHUB_TOKEN", "")),
-        type="password",
-        placeholder="ghp_...",
-    )
-    gh_branch = st.text_input(
-        "Branch",
-        value=st.session_state.get("gh_branch", _get_secret("GITHUB_BRANCH", "main")),
-    )
-    st.session_state["gh_repo"] = gh_repo
-    st.session_state["gh_token"] = gh_token
-    st.session_state["gh_branch"] = gh_branch
+    if inbuilt_gh_token:
+        st.caption("✓ Inbuilt GitHub token active & persisted")
+    with st.expander("Configure GitHub Sync", expanded=not bool(inbuilt_gh_token)):
+        gh_repo = st.text_input(
+            "Repository",
+            value=st.session_state.get("gh_repo", inbuilt_gh_repo),
+            placeholder="arnab-polimi/budget",
+        )
+        gh_token = st.text_input(
+            "Access Token (Inbuilt)",
+            value=st.session_state.get("gh_token", inbuilt_gh_token),
+            type="password",
+            placeholder="ghp_...",
+        )
+        gh_branch = st.text_input(
+            "Branch",
+            value=st.session_state.get("gh_branch", inbuilt_gh_branch),
+        )
+        if gh_token != inbuilt_gh_token or gh_repo != inbuilt_gh_repo or gh_branch != inbuilt_gh_branch:
+            set_setting("github_token_b64", encode_secret(gh_token))
+            set_setting("github_repo", gh_repo)
+            set_setting("github_branch", gh_branch)
+        st.session_state["gh_repo"] = gh_repo
+        st.session_state["gh_token"] = gh_token
+        st.session_state["gh_branch"] = gh_branch
 
     st.checkbox("Auto-commit on write", key="auto_github_sync", value=True)
 

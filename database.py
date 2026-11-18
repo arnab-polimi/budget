@@ -45,7 +45,45 @@ DEFAULT_SETTINGS = {
     "eur_inr_rate": "90.0",
     "wise_invest_inr_per_300": "12000.0",
     "monthly_pac_fondi_eur": "100.0",
+    "github_repo": "arnab-polimi/budget",
+    "github_branch": "main",
+    "github_token_b64": "",
+    "gemini_api_key_b64": "",
 }
+
+
+def encode_secret(plain: str) -> str:
+    if not plain or not plain.strip():
+        return ""
+    return base64.b64encode(plain.strip().encode("utf-8")).decode("utf-8")
+
+
+def decode_secret(encoded: str) -> str:
+    if not encoded or not encoded.strip():
+        return ""
+    try:
+        return base64.b64decode(encoded.strip().encode("utf-8")).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def get_local_git_credential_token() -> str:
+    """Retrieves the local Git Credential Manager OAuth token for github.com if available."""
+    try:
+        proc = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=github.com\n\n",
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                if line.startswith("password="):
+                    return line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
 
 
 def get_connection() -> sqlite3.Connection:
@@ -473,22 +511,28 @@ def sync_db_to_github(
     if not os.path.exists(DB_PATH):
         init_db()
 
+    effective_token = github_token.strip()
+    if not effective_token:
+        effective_token = decode_secret(get_setting("github_token_b64", "")) or get_local_git_credential_token()
+    effective_repo = github_repo.strip() or get_setting("github_repo", "arnab-polimi/budget")
+    effective_branch = github_branch.strip() or get_setting("github_branch", "main")
+
     msg = commit_message or f"chore(db): sync ledger [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
 
-    # 1. If a GitHub Personal Access Token is provided (e.g. on Streamlit Cloud), push via GitHub REST API
-    if github_token and github_repo:
+    # 1. Push via GitHub REST API using inbuilt/stored/GCM token
+    if effective_token and effective_repo:
         with open(DB_PATH, "rb") as f:
             content_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-        api_url = f"https://api.github.com/repos/{github_repo.strip()}/contents/{remote_path.strip('/')}"
+        api_url = f"https://api.github.com/repos/{effective_repo}/contents/{remote_path.strip('/')}"
         headers = {
-            "Authorization": f"Bearer {github_token.strip()}",
+            "Authorization": f"Bearer {effective_token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
         sha = None
-        get_resp = requests.get(api_url, headers=headers, params={"ref": github_branch}, timeout=15)
+        get_resp = requests.get(api_url, headers=headers, params={"ref": effective_branch}, timeout=15)
         if get_resp.status_code == 200:
             sha = get_resp.json().get("sha")
         elif get_resp.status_code not in (404,):
@@ -497,14 +541,14 @@ def sync_db_to_github(
         payload: Dict[str, Any] = {
             "message": msg,
             "content": content_b64,
-            "branch": github_branch,
+            "branch": effective_branch,
         }
         if sha:
             payload["sha"] = sha
 
         put_resp = requests.put(api_url, headers=headers, json=payload, timeout=20)
         if put_resp.status_code in (200, 201):
-            return True, f"Synced to {github_repo} ({github_branch})."
+            return True, f"Synced to {effective_repo} ({effective_branch})."
         return False, f"GitHub push failed ({put_resp.status_code})."
 
     # 2. Local Git CLI fallback (uses local git credentials automatically without needing a token)
@@ -514,7 +558,7 @@ def sync_db_to_github(
             commit_res = subprocess.run(["git", "commit", "-m", msg], cwd=ROOT_DIR, capture_output=True, text=True)
             if "nothing to commit" in (commit_res.stdout or "") + (commit_res.stderr or ""):
                 return True, "Database already up to date in Git."
-            push_res = subprocess.run(["git", "push", "origin", github_branch], cwd=ROOT_DIR, capture_output=True, text=True, timeout=20)
+            push_res = subprocess.run(["git", "push", "origin", effective_branch], cwd=ROOT_DIR, capture_output=True, text=True, timeout=20)
             if push_res.returncode == 0:
                 return True, "Committed and pushed DB to GitHub via local Git."
             return False, f"Committed locally, push error: {push_res.stderr[:120]}"
@@ -530,15 +574,21 @@ def pull_db_from_github(
     github_branch: str = "main",
     remote_path: str = "data/budget_2027.db",
 ) -> Tuple[bool, str]:
-    if github_token and github_repo:
-        api_url = f"https://api.github.com/repos/{github_repo.strip()}/contents/{remote_path.strip('/')}"
+    effective_token = github_token.strip()
+    if not effective_token:
+        effective_token = decode_secret(get_setting("github_token_b64", "")) or get_local_git_credential_token()
+    effective_repo = github_repo.strip() or get_setting("github_repo", "arnab-polimi/budget")
+    effective_branch = github_branch.strip() or get_setting("github_branch", "main")
+
+    if effective_token and effective_repo:
+        api_url = f"https://api.github.com/repos/{effective_repo}/contents/{remote_path.strip('/')}"
         headers = {
-            "Authorization": f"Bearer {github_token.strip()}",
+            "Authorization": f"Bearer {effective_token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
-        resp = requests.get(api_url, headers=headers, params={"ref": github_branch}, timeout=15)
+        resp = requests.get(api_url, headers=headers, params={"ref": effective_branch}, timeout=15)
         if resp.status_code != 200:
             return False, f"Fetch failed ({resp.status_code})."
 
@@ -552,11 +602,11 @@ def pull_db_from_github(
         with open(DB_PATH, "wb") as f:
             f.write(raw_bytes)
 
-        return True, f"Restored from {github_repo} ({github_branch})."
+        return True, f"Restored from {effective_repo} ({effective_branch})."
 
     if os.path.exists(os.path.join(ROOT_DIR, ".git")):
         try:
-            pull_res = subprocess.run(["git", "pull", "--rebase", "origin", github_branch], cwd=ROOT_DIR, capture_output=True, text=True, timeout=20)
+            pull_res = subprocess.run(["git", "pull", "--rebase", "origin", effective_branch], cwd=ROOT_DIR, capture_output=True, text=True, timeout=20)
             if pull_res.returncode == 0:
                 return True, "Pulled latest DB from GitHub via local Git."
             return False, f"Git pull failed: {pull_res.stderr[:120]}"
