@@ -193,6 +193,9 @@ hourly_wage = float(settings.get("hourly_wage", 14.0))
 monthly_income_target = float(settings.get("monthly_income_target", 2200.0))
 monthly_savings_goal = float(settings.get("monthly_savings_goal", 600.0))
 suspect_threshold = float(settings.get("suspect_threshold_eur", 15.0))
+eur_inr_rate = float(settings.get("eur_inr_rate", 90.0))
+wise_invest_inr_per_300 = float(settings.get("wise_invest_inr_per_300", 12000.0))
+monthly_pac_fondi_eur = float(settings.get("monthly_pac_fondi_eur", 100.0))
 ai_provider = settings.get("ai_provider", "gemini")
 ai_model = settings.get("ai_model", "gemini-2.5-flash")
 strictness = settings.get("interrogator_strictness", "Direct & Analytical")
@@ -316,7 +319,7 @@ tabs = st.tabs(
 # TAB 1: OVERVIEW
 # ==============================================================================
 with tabs[0]:
-    f_col1, f_col2, f_col3 = st.columns([1.1, 1.1, 1.8])
+    f_col1, f_col2, f_col3, f_col4 = st.columns([1.0, 1.0, 0.9, 1.5])
     today = date.today()
     first_of_month = today.replace(day=1)
 
@@ -344,9 +347,15 @@ with tabs[0]:
             index=0,
         )
     with f_col3:
+        recurrence_filter = st.selectbox(
+            "Frequency",
+            options=["All", "Recurring", "One-Time"],
+            index=0,
+        )
+    with f_col4:
         search_q = st.text_input("Filter ledger", placeholder="Merchant, category, or note...")
 
-    df = get_transactions_df(start_date=start_d, verdict_filter=verdict_filter)
+    df = get_transactions_df(start_date=start_d, verdict_filter=verdict_filter, recurrence_filter=recurrence_filter)
     if search_q and not df.empty:
         mask = (
             df["description"].str.contains(search_q, case=False, na=False)
@@ -487,13 +496,14 @@ with tabs[0]:
         st.divider()
         st.markdown("##### Ledger")
         display_df = df[
-            ["id", "tx_date", "merchant", "category", "amount", "verdict", "ai_roast", "source"]
+            ["id", "tx_date", "merchant", "category", "recurrence", "amount", "verdict", "ai_roast", "source"]
         ].copy()
         display_df.columns = [
             "ID",
             "Date",
             "Merchant",
             "Category",
+            "Frequency",
             "Amount",
             "Status",
             "Audit Note",
@@ -551,35 +561,44 @@ with tabs[1]:
         hourly_wage=hourly_wage,
         custom_cut_ratios=custom_ratios,
         include_justified_in_leaks=include_justified_toggle,
+        eur_inr_rate=eur_inr_rate,
+        wise_invest_inr_per_300=wise_invest_inr_per_300,
+        monthly_pac_fondi_eur=monthly_pac_fondi_eur,
     )
     if intel.get("empty"):
         st.caption("No transaction data available for advisory analysis.")
     else:
         astats = intel["audit_stats"]
         # Top Scorecard Row
-        sc1, sc2, sc3, sc4 = st.columns(4)
+        sc1, sc2, sc3, sc4, sc5 = st.columns(5)
         sc1.metric(
             "Financial Wisdom Score",
             f"{intel['wisdom_score']} / 100",
-            f"Audit {astats['completion_pct']:.0f}% complete ({astats['justified_cnt']} justified, {astats['guilty_cnt']} unjustified)",
+            f"{intel['savings_rate_pct']:.1f}% effective savings rate",
             delta_color="off",
         )
         sc2.metric(
-            "Recoverable (This Period)",
+            "Active Investments",
+            f"€{intel['total_invested_capital_eur']:,.2f}",
+            f"€{intel['monthly_invested_avg_eur']:,.0f}/mo (Fondi PAC + Wise 12k INR)",
+            delta_color="off",
+        )
+        sc3.metric(
+            "Recoverable Leaks (Period)",
             f"€{intel['total_saveable_period']:,.2f}",
             f"€{intel['total_saveable_annualized']:,.0f} / year pace",
             delta_color="off",
         )
-        sc3.metric(
+        sc4.metric(
             "Recoverable (Per Month)",
             f"€{intel['total_saveable_monthly']:,.2f}/mo",
-            f"€{astats['justified_eur']:,.0f} cleared via audit",
+            f"€{intel['recurring_saveable_monthly']:,.0f}/mo recurring · €{intel['onetime_saveable_monthly']:,.0f}/mo 1-time",
             delta_color="off",
         )
-        sc4.metric(
-            "Recommended Monthly Saving",
-            f"€{intel['recommended_save_floor']:,.0f} – €{intel['recommended_save_optimal']:,.0f}",
-            f"On €{intel['base_monthly_income']:,.0f} base salary",
+        sc5.metric(
+            "Recurrence-Adjusted Forecast",
+            f"€{intel['forecast_monthly_savings']:,.0f} / mo",
+            f"€{intel['forecast_annual_savings']:,.0f}/yr projected on €{intel['base_monthly_income']:,.0f} salary",
             delta_color="off",
         )
 
@@ -587,16 +606,16 @@ with tabs[1]:
         diag_col, plan_col = st.columns([1.15, 1.0], gap="large")
 
         with diag_col:
-            st.markdown("##### Executive Diagnosis — Reactive to Your Audit")
+            st.markdown("##### Executive Diagnosis — Reactive to Your Audit, Investments & Frequency Tags")
             sb = intel["score_breakdown"]
             st.markdown(
                 f"""
                 <div class="spec-card">
                     <div class="spec-label">Assessment · {intel['rating_label']}</div>
                     <div style="color:#D4D4D8; font-size:0.9rem; line-height:1.6; margin-top:8px;">
-                        <b>1. Core Overhead ({sb['Essential Overhead Control']}):</b> Fixed essentials average <b>€{intel['essential_monthly']:,.0f}/month</b> ({intel['overhead_ratio_pct']}% of your €{intel['base_monthly_income']:,.0f} base salary).<br/>
-                        <b>2. Audit & Impulse Hygiene ({sb['Audit & Impulse Hygiene']}):</b> You have reviewed <b>{astats['completion_pct']:.1f}%</b> of non-essential transactions — clearing <b>€{astats['justified_eur']:,.2f}</b> as Justified, confirming <b>€{astats['guilty_eur']:,.2f}</b> as Unjustified, with <b>€{astats['pending_eur']:,.2f}</b> ({astats['pending_cnt']} items) still pending review.<br/>
-                        <b>3. Cashflow Consistency ({sb['Cashflow Consistency']}):</b> Ran a deficit in <b>{intel['deficit_months']} of {intel['n_months']} months</b> (Apr, May, Aug, Sep). As you justify legitimate expenses in the <b>Audit</b> tab (or below), your Wisdom Score rises and cleared amounts drop out of the leak table automatically.
+                        <b>1. Stock PAC & Wise INR Investments Credited ({sb['Retention & Audit Progress']}):</b> You have actively invested <b>€{intel['total_invested_capital_eur']:,.2f}</b> (<b>€{intel['monthly_invested_avg_eur']:,.0f}/mo</b>) across <b>SOTTOSCRIZIONI FONDI E SICAV</b> (€{intel['fondi_total_accredited_eur']:,.0f} stock PAC @ €{monthly_pac_fondi_eur:.0f}/mo) and <b>{intel['wise_gt300_cnt']} Wise transfers &gt;€300</b> ({intel['wise_invested_total_inr']:,.0f} INR ≈ <b>€{intel['wise_invested_total_eur']:,.2f}</b> @ {wise_invest_inr_per_300:,.0f} INR / tx). Including these investments, your true wealth accumulation is <b>€{intel['true_wealth_accumulated_eur']:+,.2f}</b> (<b>{intel['savings_rate_pct']:.1f}%</b> effective savings rate).<br/>
+                        <b>2. Recurring vs. One-Time Split ({sb['Essential Overhead Control']}):</b> Outflow splits into <b>€{intel['recurring_monthly_burn']:,.0f}/mo Recurring</b> (€{intel['committed_recurring_monthly']:,.0f}/mo non-investment living baseline + €{intel['suspect_recurring_monthly']:,.0f}/mo unverified/BNPL recurring) and <b>€{intel['onetime_monthly_avg']:,.0f}/mo One-Time</b>.<br/>
+                        <b>3. Forward Savings Forecast ({sb['Cashflow Consistency']}):</b> Combining your existing <b>€{intel['monthly_invested_avg_eur']:,.0f}/mo</b> automated investments with trimming recurring leaks (<b>+€{intel['recurring_saveable_monthly']:,.0f}/mo</b>) and capping one-time purchases at <b>€{intel['planned_onetime_allowance']:,.0f}/mo</b> forecasts <b>€{intel['forecast_monthly_savings']:,.0f}/mo</b> (<b>€{intel['forecast_annual_savings']:,.0f}/year</b>) in total wealth accumulation.
                     </div>
                 </div>
                 """,
@@ -604,31 +623,31 @@ with tabs[1]:
             )
 
         with plan_col:
-            st.markdown("##### Monthly Savings Prescription")
+            st.markdown("##### Monthly Savings Prescription & Investment Breakdown")
             st.markdown(
                 f"""
                 <div class="spec-card">
-                    <div class="spec-label">Monthly Allocation Target (Base Salary: €{intel['base_monthly_income']:,.0f}/mo)</div>
+                    <div class="spec-label">Forward Monthly Forecast (Base Salary: €{intel['base_monthly_income']:,.0f}/mo)</div>
                     <div class="spec-grid">
                         <div>
-                            <div class="spec-label">1. Fixed Essentials</div>
-                            <div class="spec-value">€{intel['recommended_essential']:,.0f} / mo</div>
-                            <div style="font-size:0.76rem; color:#7D7D87;">Rent (€600), Utilities, Mensa, Groceries</div>
+                            <div class="spec-label">1. Committed Living Baseline</div>
+                            <div class="spec-value">€{intel['committed_recurring_monthly']:,.0f} / mo</div>
+                            <div style="font-size:0.76rem; color:#7D7D87;">Rent (€600), Utilities, Mensa, Groceries, Remittance</div>
                         </div>
                         <div>
-                            <div class="spec-label">2. Automated Savings (Day 27)</div>
-                            <div class="spec-value" style="color:#10B981;">€{intel['recommended_save_floor']:,.0f} – €{intel['recommended_save_optimal']:,.0f} / mo</div>
-                            <div style="font-size:0.76rem; color:#7D7D87;">Transfer immediately on payday</div>
+                            <div class="spec-label">2. Forecasted Total Savings</div>
+                            <div class="spec-value" style="color:#10B981;">€{intel['forecast_monthly_savings']:,.0f} / mo</div>
+                            <div style="font-size:0.76rem; color:#7D7D87;">€{intel['forecast_annual_savings']:,.0f}/yr (Investments + Recovered Leaks)</div>
                         </div>
                         <div>
-                            <div class="spec-label">3. Discretionary & Revolut Cap</div>
-                            <div class="spec-value">€{intel['recommended_discretionary_cap']:,.0f} / mo</div>
-                            <div style="font-size:0.76rem; color:#7D7D87;">Hard ceiling across all wants & BNPL</div>
+                            <div class="spec-label">3. Stock PAC (Fondi e Sicav)</div>
+                            <div class="spec-value" style="color:#10B981;">€{monthly_pac_fondi_eur:,.0f} / mo</div>
+                            <div style="font-size:0.76rem; color:#7D7D87;">€{intel['fondi_total_accredited_eur']:,.0f} accumulated (Etica Azionario & Trans.Climat)</div>
                         </div>
                         <div>
-                            <div class="spec-label">4. Wise Transfers Note</div>
-                            <div class="spec-value">€{intel['wise_total']:,.0f} total</div>
-                            <div style="font-size:0.76rem; color:#7D7D87;">Mark as Justified or Savings below if investments</div>
+                            <div class="spec-label">4. Wise &gt;€300 Investment (12k INR)</div>
+                            <div class="spec-value" style="color:#10B981;">€{intel['wise_invested_total_eur']:,.0f} invested</div>
+                            <div style="font-size:0.76rem; color:#7D7D87;">{intel['wise_gt300_cnt']} transfers &gt;€300 ({intel['wise_invested_total_inr']:,.0f} INR) out of €{intel['wise_total']:,.0f} Wise</div>
                         </div>
                     </div>
                 </div>
@@ -637,8 +656,8 @@ with tabs[1]:
             )
 
         st.markdown("##### Fast Bulk Merchant Audit (Instant Recalculation)")
-        st.caption("Classify all transactions for a recurring merchant at once and watch the Wisdom Score and Recoverable Savings update immediately.")
-        bm_col1, bm_col2, bm_col3, bm_col4 = st.columns([1.4, 1.1, 1.1, 0.8])
+        st.caption("Classify all transactions for a merchant at once — including whether it is a **One-Time** or **Recurring** expense — and watch the Savings Forecast update immediately.")
+        bm_col1, bm_col2, bm_col3, bm_col4, bm_col5 = st.columns([1.4, 0.95, 0.9, 1.1, 0.75])
         expense_merchants = (
             all_tx_df[all_tx_df["amount"] < 0]
             .groupby("merchant")["amount"]
@@ -660,28 +679,42 @@ with tabs[1]:
                 label_visibility="collapsed",
             )
         with bm_col3:
+            sel_m_rec = st.selectbox(
+                "Frequency Override",
+                options=["(Keep frequency)", "Recurring", "One-Time"],
+                label_visibility="collapsed",
+            )
+        with bm_col4:
             sel_m_cat = st.selectbox(
                 "Optional Category Override",
                 options=["(Keep current category)"] + category_list,
                 label_visibility="collapsed",
             )
-        with bm_col4:
+        with bm_col5:
             if st.button("Apply to All", width="stretch"):
                 cat_override = None if sel_m_cat == "(Keep current category)" else sel_m_cat
-                updated_n = bulk_update_merchant_verdict(sel_m_name, sel_m_verdict, category=cat_override)
+                rec_override = None if sel_m_rec == "(Keep frequency)" else sel_m_rec
+                updated_n = bulk_update_merchant_verdict(
+                    sel_m_name,
+                    sel_m_verdict,
+                    category=cat_override,
+                    recurrence=rec_override,
+                )
                 trigger_auto_github_sync(f"bulk audit {sel_m_name}")
                 st.toast(f"Updated {updated_n} transactions for {sel_m_name} to {sel_m_verdict}.")
                 st.rerun()
 
         st.write("")
-        st.markdown("##### Exact Places & Amounts You Could Have Saved (Live Audit-Adjusted)")
-        display_leaks = intel["leaks_df"].drop(columns=["key"], errors="ignore")
+        st.markdown("##### Exact Places & Amounts You Could Have Saved (Live Audit & Recurrence-Adjusted)")
+        display_leaks = intel["leaks_df"].drop(columns=["key", "rec_save_mo", "one_save_mo"], errors="ignore")
         st.dataframe(
             display_leaks,
             width="stretch",
             hide_index=True,
             column_config={
                 "Total Spent (€)": st.column_config.NumberColumn("Total Spent", format="€ %.2f"),
+                "Recurring (€)": st.column_config.NumberColumn("Recurring", format="€ %.2f"),
+                "One-Time (€)": st.column_config.NumberColumn("One-Time", format="€ %.2f"),
                 "Cleared / Justified (€)": st.column_config.NumberColumn("Cleared (Justified)", format="€ %.2f"),
                 "Unjustified / Pending (€)": st.column_config.NumberColumn("Unjustified / Pending", format="€ %.2f"),
                 "Target Cut (%)": st.column_config.NumberColumn("Cut %", format="%d%%"),
@@ -693,19 +726,23 @@ with tabs[1]:
         )
 
         st.write("")
-        st.markdown("##### Month-by-Month Cashflow & Deficit Audit")
+        st.markdown("##### Month-by-Month Cashflow, Investments & Recurring vs. One-Time Breakdown")
         st.dataframe(
             intel["monthly_summary_df"],
             width="stretch",
             hide_index=True,
             column_config={
                 "Inflow (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                "Invested (Fondi + Wise 12k INR) (€)": st.column_config.NumberColumn("Invested (PAC + Wise)", format="€ %.2f"),
+                "Recurring Outflow (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                "One-Time Outflow (€)": st.column_config.NumberColumn(format="€ %.2f"),
                 "Essential (€)": st.column_config.NumberColumn(format="€ %.2f"),
                 "Discretionary & Retail (€)": st.column_config.NumberColumn(format="€ %.2f"),
                 "Transfers & P2P (€)": st.column_config.NumberColumn(format="€ %.2f"),
                 "Total Outflow (€)": st.column_config.NumberColumn(format="€ %.2f"),
                 "Net Cashflow (€)": st.column_config.NumberColumn(format="€ %+.2f"),
-                "Savings Rate (%)": st.column_config.NumberColumn(format="%.1f%%"),
+                "Net Wealth Retained + Invested (€)": st.column_config.NumberColumn("Net Wealth (+Invested)", format="€ %+.2f"),
+                "Effective Savings Rate (%)": st.column_config.NumberColumn("Effective Save %", format="%.1f%%"),
             },
         )
 
@@ -727,10 +764,14 @@ with tabs[2]:
                 tx_d = st.date_input("Date", value=date.today())
 
             merchant_in = st.text_input("Merchant / Counterparty", placeholder="e.g. Esselunga, Glovo, Enel...")
-            cat_in = st.selectbox("Category", options=category_list, index=4)
+            c_cat, c_rec = st.columns([1.4, 1.0])
+            with c_cat:
+                cat_in = st.selectbox("Category", options=category_list, index=4)
+            with c_rec:
+                rec_in = st.selectbox("Expense Frequency", options=["One-Time", "Recurring"], index=0)
             excuse_in = st.text_area(
                 "Rationale (Optional)",
-                placeholder="State the purpose of this expense, or leave blank for review.",
+                placeholder="State the purpose of this expense (and whether one-time or recurring), or leave blank for review.",
                 height=72,
             )
 
@@ -752,7 +793,7 @@ with tabs[2]:
                 elif cat_tier == "Essential" and abs(signed_amt) <= suspect_threshold * 4:
                     verdict = "Essential Pass"
                     regret = 5
-                    roast = "Essential operating expense."
+                    roast = f"Essential operating expense ({rec_in})."
                     history = []
                 else:
                     init_conv = []
@@ -772,9 +813,11 @@ with tabs[2]:
                         strictness=strictness_choice,
                         hourly_wage=hourly_wage,
                         monthly_savings_goal=monthly_savings_goal,
+                        recurrence=rec_in,
                     )
                     init_conv.append({"role": "assistant", "content": ai_reply})
                     verdict = str(meta.get("verdict_recommendation", "Pending Review"))
+                    rec_in = str(meta.get("recurrence_recommendation", rec_in))
                     regret = int(meta.get("regret_score", 70))
                     roast = str(meta.get("one_line_roast", ai_reply[:110]))
                     history = init_conv
@@ -791,6 +834,7 @@ with tabs[2]:
                     user_excuse=excuse_in.strip(),
                     ai_roast=roast,
                     interrogation_history=history,
+                    recurrence=rec_in,
                 )
                 if ok:
                     st.session_state["last_logged_tx_id"] = new_id
@@ -914,7 +958,7 @@ with tabs[3]:
                 st.rerun()
 
         default_check = bool(st.session_state.get("batch_select_all", False))
-        batch_df = suspect_choices_df[["id", "tx_date", "merchant", "category", "amount", "verdict", "description"]].copy()
+        batch_df = suspect_choices_df[["id", "tx_date", "merchant", "category", "recurrence", "amount", "verdict", "description"]].copy()
         batch_df.insert(0, "Select", default_check)
 
         edited_batch = st.data_editor(
@@ -929,6 +973,7 @@ with tabs[3]:
                 "tx_date": "Date",
                 "merchant": "Merchant",
                 "category": st.column_config.SelectboxColumn("Category", options=category_list),
+                "recurrence": st.column_config.SelectboxColumn("Frequency", options=["One-Time", "Recurring"]),
                 "amount": st.column_config.NumberColumn("Amount", format="€ %.2f"),
                 "verdict": "Current Status",
                 "description": "Raw Bank Description",
@@ -948,7 +993,7 @@ with tabs[3]:
             unsafe_allow_html=True,
         )
 
-        act_col1, act_col2 = st.columns([1.2, 1.8])
+        act_col1, act_col2, act_col3 = st.columns([1.1, 0.9, 1.5])
         with act_col1:
             batch_cat_override = st.selectbox(
                 "Optional Category Override for Selected",
@@ -956,31 +1001,59 @@ with tabs[3]:
                 label_visibility="collapsed",
             )
         with act_col2:
+            batch_rec_override = st.selectbox(
+                "Expense Frequency for Selected",
+                options=["(Use row frequency)", "One-Time", "Recurring"],
+                label_visibility="collapsed",
+            )
+        with act_col3:
             batch_note = st.text_input(
                 "Shared Audit Note / Rationale (Optional)",
                 placeholder="Optional rationale for all selected transactions...",
                 label_visibility="collapsed",
             )
 
+        def _apply_batch_verdict(target_verdict: str, default_note: str) -> None:
+            cat_arg = None if batch_cat_override == "(Use row category)" else batch_cat_override
+            rec_arg = None if batch_rec_override == "(Use row frequency)" else batch_rec_override
+            if cat_arg is not None and rec_arg is not None:
+                bulk_update_transactions_by_ids(
+                    selected_ids,
+                    target_verdict,
+                    category=cat_arg,
+                    recurrence=rec_arg,
+                    user_excuse=batch_note or default_note,
+                )
+            else:
+                for _, srow in selected_rows.iterrows():
+                    row_cat = cat_arg if cat_arg is not None else str(srow["category"])
+                    row_rec = rec_arg if rec_arg is not None else str(srow["recurrence"])
+                    bulk_update_transactions_by_ids(
+                        [int(srow["id"])],
+                        target_verdict,
+                        category=row_cat,
+                        recurrence=row_rec,
+                        user_excuse=batch_note or default_note,
+                    )
+
         mb1, mb2, mb3, mb4 = st.columns(4)
-        cat_arg = None if batch_cat_override == "(Use row category)" else batch_cat_override
         with mb1:
             if st.button(f"Mark Selected Justified ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
-                bulk_update_transactions_by_ids(selected_ids, "Justified", category=cat_arg, user_excuse=batch_note or "Batch verified as justified.")
+                _apply_batch_verdict("Justified", "Batch verified as justified.")
                 st.session_state["batch_select_all"] = False
                 st.session_state["batch_ed_ver"] += 1
                 trigger_auto_github_sync("batch mark justified")
                 st.rerun()
         with mb2:
             if st.button(f"Mark Selected Unjustified ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
-                bulk_update_transactions_by_ids(selected_ids, "Guilty / Bad Purchase", category=cat_arg, user_excuse=batch_note or "Batch marked unjustified.")
+                _apply_batch_verdict("Guilty / Bad Purchase", "Batch marked unjustified.")
                 st.session_state["batch_select_all"] = False
                 st.session_state["batch_ed_ver"] += 1
                 trigger_auto_github_sync("batch mark unjustified")
                 st.rerun()
         with mb3:
             if st.button(f"Mark Selected Essential ({len(selected_ids)})", width="stretch", disabled=len(selected_ids) == 0):
-                bulk_update_transactions_by_ids(selected_ids, "Essential Pass", category=cat_arg, user_excuse=batch_note or "Batch marked essential.")
+                _apply_batch_verdict("Essential Pass", "Batch marked essential.")
                 st.session_state["batch_select_all"] = False
                 st.session_state["batch_ed_ver"] += 1
                 trigger_auto_github_sync("batch mark essential")
@@ -1012,10 +1085,11 @@ with tabs[3]:
             tx_row = suspect_choices_df[suspect_choices_df["id"] == selected_tx_id].iloc[0]
 
             opp_tx = compute_opportunity_cost(tx_row["amount"], hourly_wage=hourly_wage)
+            current_rec_val = tx_row["recurrence"] if tx_row.get("recurrence") in ("One-Time", "Recurring") else "One-Time"
             st.markdown(
                 f"""
                 <div class="spec-card">
-                    <div class="spec-label">Transaction #{tx_row['id']} · {tx_row['verdict']}</div>
+                    <div class="spec-label">Transaction #{tx_row['id']} · {tx_row['verdict']} · {current_rec_val}</div>
                     <div style="font-size:1.05rem; font-weight:500; color:#F4F4F6; margin:4px 0;">{tx_row['merchant']}</div>
                     <div style="font-size:0.8rem; color:#7D7D87; margin-bottom:12px;">{tx_row['description']}</div>
                     <div class="spec-grid">
@@ -1047,6 +1121,26 @@ with tabs[3]:
                 index=category_list.index(tx_row["category"]) if tx_row["category"] in category_list else 0,
                 key=f"cat_edit_{selected_tx_id}",
             )
+            new_rec = st.radio(
+                "Is this a One-Time or Recurring Expense?",
+                options=["One-Time", "Recurring"],
+                index=1 if current_rec_val == "Recurring" else 0,
+                horizontal=True,
+                key=f"rec_edit_{selected_tx_id}",
+            )
+            if new_rec != current_rec_val or new_cat != tx_row["category"]:
+                update_transaction_verdict(
+                    tx_id=int(selected_tx_id),
+                    verdict=tx_row["verdict"],
+                    regret_score=int(tx_row["regret_score"]),
+                    user_excuse=tx_row["user_excuse"],
+                    ai_roast=tx_row["ai_roast"],
+                    interrogation_history=json.loads(tx_row["interrogation_history"] or "[]"),
+                    category=new_cat,
+                    recurrence=new_rec,
+                )
+                trigger_auto_github_sync("update tx frequency/category")
+                st.rerun()
 
         with col_chat:
             st.markdown(f"##### Review — {tx_row['merchant']} (€{abs(tx_row['amount']):.2f})")
@@ -1070,6 +1164,7 @@ with tabs[3]:
                     strictness=strictness_choice,
                     hourly_wage=hourly_wage,
                     monthly_savings_goal=monthly_savings_goal,
+                    recurrence=new_rec,
                 )
                 conv_history = [{"role": "assistant", "content": opening_msg}]
                 update_transaction_verdict(
@@ -1080,6 +1175,7 @@ with tabs[3]:
                     ai_roast=str(meta.get("one_line_roast", opening_msg[:110])),
                     interrogation_history=conv_history,
                     category=new_cat,
+                    recurrence=new_rec,
                 )
 
             chat_container = st.container(height=340)
@@ -1088,7 +1184,7 @@ with tabs[3]:
                     with st.chat_message(msg["role"]):
                         st.markdown(msg["content"])
 
-            defense_input = st.chat_input("Enter justification or acknowledge impulse...")
+            defense_input = st.chat_input("Enter justification (and whether one-time or recurring)...")
             if defense_input:
                 conv_history.append({"role": "user", "content": defense_input})
                 ai_reply, meta = interrogate_transaction(
@@ -1104,9 +1200,11 @@ with tabs[3]:
                     strictness=strictness_choice,
                     hourly_wage=hourly_wage,
                     monthly_savings_goal=monthly_savings_goal,
+                    recurrence=new_rec,
                 )
                 conv_history.append({"role": "assistant", "content": ai_reply})
                 rec_verdict = str(meta.get("verdict_recommendation", "Pending Review"))
+                rec_freq = str(meta.get("recurrence_recommendation", new_rec))
                 rec_score = int(meta.get("regret_score", 70))
                 rec_roast = str(meta.get("one_line_roast", ai_reply[:110]))
 
@@ -1118,6 +1216,7 @@ with tabs[3]:
                     ai_roast=rec_roast,
                     interrogation_history=conv_history,
                     category=new_cat,
+                    recurrence=rec_freq,
                 )
                 trigger_auto_github_sync("audit review")
                 st.rerun()
@@ -1130,9 +1229,10 @@ with tabs[3]:
                         verdict="Guilty / Bad Purchase",
                         regret_score=90,
                         user_excuse=tx_row["user_excuse"] or "Acknowledged as unjustified.",
-                        ai_roast=f"Unjustified spend ({opp_tx['hours_worked']}h labor).",
+                        ai_roast=f"Unjustified spend ({new_rec} · {opp_tx['hours_worked']}h labor).",
                         interrogation_history=conv_history,
                         category=new_cat,
+                        recurrence=new_rec,
                     )
                     trigger_auto_github_sync("mark unjustified")
                     st.rerun()
@@ -1143,9 +1243,10 @@ with tabs[3]:
                         verdict="Justified",
                         regret_score=15,
                         user_excuse=tx_row["user_excuse"] or "Verified intentional purchase.",
-                        ai_roast=tx_row["ai_roast"] or "Verified by user.",
+                        ai_roast=tx_row["ai_roast"] or f"Verified by user ({new_rec}).",
                         interrogation_history=conv_history,
                         category=new_cat,
+                        recurrence=new_rec,
                     )
                     trigger_auto_github_sync("mark justified")
                     st.rerun()
@@ -1156,9 +1257,10 @@ with tabs[3]:
                         verdict="Essential Pass",
                         regret_score=0,
                         user_excuse="Essential expense.",
-                        ai_roast="Essential operating expense.",
+                        ai_roast=f"Essential operating expense ({new_rec}).",
                         interrogation_history=conv_history,
                         category=new_cat,
+                        recurrence=new_rec,
                     )
                     trigger_auto_github_sync("mark essential")
                     st.rerun()
@@ -1173,10 +1275,10 @@ with tabs[3]:
 # TAB 5: BPER BANK IMPORTER
 # ==============================================================================
 with tabs[4]:
-    st.markdown("##### BPER Statement Import")
+    st.markdown("##### BPER & Banca Popolare di Sondrio Statement Import")
     st.caption(
-        "Upload BPER PDF statements (`Mod. 05.13.0011 Riepilogo Mensile`) or `.xlsx`/`.csv` exports, "
-        "or scan the workspace directory directly. Duplicate entries are skipped via SHA-256 hashing."
+        "Upload BPER PDF statements (`LQ10_*.pdf` Mod. 05.13.0011), Banca Popolare di Sondrio / BPER Group statements (`HC42_*.pdf` Estratto Conto), "
+        "or `.xlsx`/`.csv` exports — or scan the workspace directory directly. Duplicate entries are skipped via SHA-256 hashing."
     )
 
     workspace_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1222,6 +1324,7 @@ with tabs[4]:
                 "Include": st.column_config.CheckboxColumn("Import", default=True),
                 "Amount (€)": st.column_config.NumberColumn("Amount", format="€ %.2f"),
                 "Category": st.column_config.SelectboxColumn("Category", options=category_list),
+                "Recurrence": st.column_config.SelectboxColumn("Frequency", options=["One-Time", "Recurring"]),
                 "Status / Verdict": st.column_config.SelectboxColumn(
                     "Classification",
                     options=["Pending Review", "Essential Pass", "Justified", "Guilty / Bad Purchase", "Income"],
@@ -1238,11 +1341,12 @@ with tabs[4]:
                     continue
                 amt = float(row["Amount (€)"])
                 verdict = str(row["Status / Verdict"])
+                rec_val = str(row.get("Recurrence", "One-Time"))
                 opp = compute_opportunity_cost(amt, hourly_wage=hourly_wage)
                 roast = (
-                    f"BPER import ({opp['hours_worked']}h labor). Pending review."
+                    f"Statement import ({rec_val} · {opp['hours_worked']}h labor). Pending review."
                     if verdict == "Pending Review"
-                    else "BPER statement import."
+                    else f"Statement import ({rec_val})."
                 )
                 regret = 70 if verdict == "Pending Review" else (85 if verdict == "Guilty / Bad Purchase" else 5)
 
@@ -1253,10 +1357,11 @@ with tabs[4]:
                     merchant=str(row["Merchant"]),
                     amount=amt,
                     category=str(row["Category"]),
-                    source="BPER PDF",
+                    source="Bank PDF",
                     verdict=verdict,
                     regret_score=regret,
                     ai_roast=roast,
+                    recurrence=rec_val,
                     allow_duplicate_manual=False,
                 )
                 if ok:
@@ -1265,7 +1370,7 @@ with tabs[4]:
                     skipped_cnt += 1
 
             del st.session_state["bper_preview_df"]
-            trigger_auto_github_sync("BPER PDF import")
+            trigger_auto_github_sync("Bank PDF import")
             st.toast(f"Imported {inserted_cnt} transactions ({skipped_cnt} duplicates skipped).")
             st.rerun()
 
@@ -1385,11 +1490,35 @@ with tabs[6]:
                 value=suspect_threshold,
                 step=1.0,
             )
+            new_pac = st.number_input(
+                "Monthly Stock PAC — SOTTOSCRIZIONI FONDI E SICAV (EUR/mo)",
+                min_value=0.0,
+                max_value=10000.0,
+                value=monthly_pac_fondi_eur,
+                step=10.0,
+            )
+            new_wise_inr = st.number_input(
+                "Wise Transfer (>€300) Investment Allocation (INR per transfer)",
+                min_value=0.0,
+                max_value=1000000.0,
+                value=wise_invest_inr_per_300,
+                step=500.0,
+            )
+            new_fx = st.number_input(
+                "EUR / INR Exchange Rate",
+                min_value=1.0,
+                max_value=500.0,
+                value=eur_inr_rate,
+                step=0.5,
+            )
             if st.form_submit_button("Save Parameters", width="stretch"):
                 set_setting("hourly_wage", str(new_wage))
                 set_setting("monthly_income_target", str(new_income))
                 set_setting("monthly_savings_goal", str(new_goal))
                 set_setting("suspect_threshold_eur", str(new_thresh))
+                set_setting("monthly_pac_fondi_eur", str(new_pac))
+                set_setting("wise_invest_inr_per_300", str(new_wise_inr))
+                set_setting("eur_inr_rate", str(new_fx))
                 trigger_auto_github_sync("update settings")
                 st.rerun()
 

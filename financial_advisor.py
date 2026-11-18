@@ -7,17 +7,17 @@ def compute_financial_intelligence(
     hourly_wage: float = 14.0,
     custom_cut_ratios: Optional[Dict[str, float]] = None,
     include_justified_in_leaks: bool = False,
+    eur_inr_rate: float = 90.0,
+    wise_invest_inr_per_300: float = 12000.0,
+    monthly_pac_fondi_eur: float = 100.0,
 ) -> Dict[str, Any]:
     """
     Computes an audit-reactive Financial Wisdom Score (0-100), monthly cashflow breakdown,
     exact merchant-by-merchant recoverable savings (annual/YTD and per month),
-    and a concrete monthly savings prescription.
-
-    Dynamically reacts to:
-    1. Every transaction audited by the user (marking a transaction 'Justified' or 'Essential Pass'
-       removes it from the leak pool unless `include_justified_in_leaks` is True; marking it
-       'Guilty / Bad Purchase' weights it at 100% recoverable unless overridden by sliders).
-    2. Interactive target reduction sliders (`custom_cut_ratios`) in the Advisory tab.
+    and a concrete monthly savings prescription that separates Recurring vs. One-Time expenses
+    AND credits automated investments:
+      - Every Wise transfer > €300 includes `wise_invest_inr_per_300` (12,000 INR) invested.
+      - Monthly €100 stock/fund investments ("SOTTOSCRIZIONI FONDI E SICAV" / `monthly_pac_fondi_eur`).
     """
     if all_tx_df.empty:
         return {"empty": True}
@@ -36,6 +36,10 @@ def compute_financial_intelligence(
         cut_ratios.update(custom_cut_ratios)
 
     df = all_tx_df.copy()
+    if "recurrence" not in df.columns:
+        df["recurrence"] = "One-Time"
+    df["recurrence"] = df["recurrence"].fillna("One-Time")
+
     df["month"] = df["tx_date"].str.slice(0, 7)
     months = sorted(df["month"].dropna().unique().tolist())
     n_months = max(len(months), 1)
@@ -47,7 +51,54 @@ def compute_financial_intelligence(
     total_inflow = float(inflow_df["amount"].sum())
     total_outflow = float(outflow_df["abs_amt"].sum())
     net_retained = total_inflow - total_outflow
-    savings_rate_pct = (net_retained / total_inflow * 100.0) if total_inflow > 0 else 0.0
+
+    # --- Investment & Stock Savings Recognition ---
+    # 1. Every Wise transfer > €300 allocates 12,000 INR (~€133.33 at 90 INR/EUR) into investments
+    safe_fx = max(float(eur_inr_rate), 1.0)
+    wise_invest_per_tx_eur = float(wise_invest_inr_per_300) / safe_fx
+    wise_all_df = outflow_df[outflow_df["merchant"].str.contains("Wise", case=False, na=False)]
+    wise_gt300_df = wise_all_df[wise_all_df["abs_amt"] > 300.0]
+    wise_gt300_cnt = int(len(wise_gt300_df))
+    wise_invested_total_inr = wise_gt300_cnt * float(wise_invest_inr_per_300)
+    wise_invested_total_eur = wise_gt300_cnt * wise_invest_per_tx_eur
+
+    # 2. "SOTTOSCRIZIONI FONDI E SICAV" (€100/month into stock/equity funds)
+    fondi_mask = (
+        (outflow_df["category"] == "Savings & Investments")
+        | (outflow_df["merchant"].str.contains("PAC Fondi|Etica", case=False, na=False))
+        | (outflow_df["description"].str.contains("SOTTOSCRIZIONI FONDI|SOTTOSCRIZIONE ETICA", case=False, na=False))
+    )
+    fondi_df = outflow_df[fondi_mask]
+    explicit_fondi_by_m = fondi_df.groupby("month")["abs_amt"].sum()
+
+    # For each month in the dataset: use explicit SOTTOSCRIZIONI FONDI E SICAV if present in statement
+    # (e.g. HC42 Estratto Conto), or credit the recurring €100/mo stock PAC (`monthly_pac_fondi_eur`)
+    # on LQ10 payment-only summaries where securities debits are omitted
+    m_wise_inv = wise_gt300_df.groupby("month")["abs_amt"].count() * wise_invest_per_tx_eur
+    m_fondi_inv: Dict[str, float] = {}
+    for m in months:
+        exp_val = float(explicit_fondi_by_m.get(m, 0.0))
+        m_fondi_inv[m] = exp_val if exp_val > 0 else float(monthly_pac_fondi_eur)
+
+    fondi_explicit_eur = float(fondi_df["abs_amt"].sum())
+    fondi_total_accredited_eur = sum(m_fondi_inv.values())
+    total_invested_capital_eur = wise_invested_total_eur + fondi_total_accredited_eur
+    monthly_invested_avg_eur = total_invested_capital_eur / n_months
+
+    # True Wealth / Capital Accumulation = Net Cash Retained + Active Investments (Fondi + Wise 12k INR)
+    # Note: explicit Fondi rows & Wise >€300 rows were already subtracted in total_outflow, so adding them back
+    # measures true net wealth retained + invested!
+    true_wealth_accumulated_eur = net_retained + wise_invested_total_eur + fondi_explicit_eur
+    savings_rate_pct = (true_wealth_accumulated_eur / total_inflow * 100.0) if total_inflow > 0 else 0.0
+    cash_only_savings_rate_pct = (net_retained / total_inflow * 100.0) if total_inflow > 0 else 0.0
+
+    # Recurring vs One-Time Outflow Breakdown
+    recurring_out_df = outflow_df[outflow_df["recurrence"] == "Recurring"]
+    onetime_out_df = outflow_df[outflow_df["recurrence"] != "Recurring"]
+    recurring_out_total = float(recurring_out_df["abs_amt"].sum())
+    onetime_out_total = float(onetime_out_df["abs_amt"].sum())
+    recurring_monthly_burn = recurring_out_total / n_months
+    onetime_monthly_avg = onetime_out_total / n_months
 
     # Audit progress metrics
     non_essential_df = outflow_df[outflow_df["verdict"] != "Essential Pass"]
@@ -84,6 +135,8 @@ def compute_financial_intelligence(
     m_ess = outflow_df[essential_mask].groupby("month")["abs_amt"].sum()
     m_disc = outflow_df[discretionary_mask].groupby("month")["abs_amt"].sum()
     m_trans = outflow_df[transfer_mask].groupby("month")["abs_amt"].sum()
+    m_rec = recurring_out_df.groupby("month")["abs_amt"].sum()
+    m_one = onetime_out_df.groupby("month")["abs_amt"].sum()
 
     monthly_rows = []
     deficit_months = 0
@@ -93,25 +146,37 @@ def compute_financial_intelligence(
         ess = float(m_ess.get(m, 0.0))
         disc = float(m_disc.get(m, 0.0))
         trn = float(m_trans.get(m, 0.0))
+        rec_m = float(m_rec.get(m, 0.0))
+        one_m = float(m_one.get(m, 0.0))
+        wise_inv_m = float(m_wise_inv.get(m, 0.0))
+        fondi_inv_m = float(m_fondi_inv.get(m, 0.0))
+        explicit_fondi_m = float(explicit_fondi_by_m.get(m, 0.0))
+        invested_m = wise_inv_m + fondi_inv_m
         net = inc - out
-        if net < 0:
+        # True wealth change adds back investments that were deducted inside outflow
+        true_net_wealth_m = net + wise_inv_m + explicit_fondi_m
+        if true_net_wealth_m < 0:
             deficit_months += 1
-        sr = (net / inc * 100.0) if inc > 0 else 0.0
+        sr = (true_net_wealth_m / inc * 100.0) if inc > 0 else 0.0
         monthly_rows.append(
             {
                 "Month": m,
                 "Inflow (€)": round(inc, 2),
+                "Invested (Fondi + Wise 12k INR) (€)": round(invested_m, 2),
+                "Recurring Outflow (€)": round(rec_m, 2),
+                "One-Time Outflow (€)": round(one_m, 2),
                 "Essential (€)": round(ess, 2),
                 "Discretionary & Retail (€)": round(disc, 2),
                 "Transfers & P2P (€)": round(trn, 2),
                 "Total Outflow (€)": round(out, 2),
                 "Net Cashflow (€)": round(net, 2),
-                "Savings Rate (%)": round(sr, 1),
+                "Net Wealth Retained + Invested (€)": round(true_net_wealth_m, 2),
+                "Effective Savings Rate (%)": round(sr, 1),
             }
         )
     monthly_summary_df = pd.DataFrame(monthly_rows)
 
-    # Specific Leak Analysis (Reactive to Audit Verdicts + Interactive Sliders!)
+    # Specific Leak Analysis (Reactive to Audit Verdicts + Recurrence + Interactive Sliders!)
     leaks: List[Dict[str, Any]] = []
 
     def _add_audit_reactive_leak(
@@ -128,6 +193,9 @@ def compute_financial_intelligence(
             return
 
         total_channel_spent = float(subset["abs_amt"].sum())
+        rec_spent = float(subset[subset["recurrence"] == "Recurring"]["abs_amt"].sum())
+        one_spent = float(subset[subset["recurrence"] != "Recurring"]["abs_amt"].sum())
+
         cleared_sub = subset[subset["verdict"].isin(["Justified", "Essential Pass"])] if not is_fee_channel else pd.DataFrame()
         guilty_sub = subset[subset["verdict"] == "Guilty / Bad Purchase"]
         pending_sub = subset[subset["verdict"] == "Pending Review"] if not is_fee_channel else subset
@@ -141,41 +209,58 @@ def compute_financial_intelligence(
             leak_base = max(0.0, total_channel_spent - net_offset_eur)
             recoverable_total = leak_base * default_ratio
         else:
-            # Confirmed guilty spends are 100% waste (or scaled by slider if user wants), pending spends use slider ratio
             effective_pending = max(0.0, pending_amt - net_offset_eur)
             recoverable_total = (guilty_amt * max(default_ratio, 0.90)) + (effective_pending * default_ratio)
+
+        # Split recoverable into Recurring vs One-Time proportional to their share in the channel
+        rec_share = (rec_spent / total_channel_spent) if total_channel_spent > 0 else 0.0
+        rec_recoverable_monthly = (recoverable_total * rec_share) / n_months
+        one_recoverable_monthly = (recoverable_total * (1.0 - rec_share)) / n_months
 
         recoverable_monthly = recoverable_total / n_months
         hours_lost = recoverable_total / max(hourly_wage, 1.0)
         fv_10y = recoverable_total * ((1.08) ** 10)
+
+        freq_label = "Recurring" if rec_share >= 0.65 else ("One-Time" if rec_share <= 0.35 else "Mixed")
 
         leaks.append(
             {
                 "key": key,
                 "Where (Merchant / Channel)": place,
                 "Category": category,
+                "Pattern": freq_label,
                 "Tx Count": int(len(subset)),
                 "Total Spent (€)": round(total_channel_spent, 2),
+                "Recurring (€)": round(rec_spent, 2),
+                "One-Time (€)": round(one_spent, 2),
                 "Cleared / Justified (€)": round(cleared_amt, 2),
                 "Unjustified / Pending (€)": round(guilty_amt + pending_amt, 2),
                 "Target Cut (%)": int(round(default_ratio * 100)),
                 "Saveable This Period (€)": round(recoverable_total, 2),
                 "Saveable Per Month (€/mo)": round(recoverable_monthly, 2),
+                "rec_save_mo": round(rec_recoverable_monthly, 2),
+                "one_save_mo": round(one_recoverable_monthly, 2),
                 "Labor Equivalent (h)": round(hours_lost, 1),
                 "10Y Compounded (€)": round(fv_10y, 2),
                 "Audit Prescription": action_rule,
             }
         )
 
-    # 1. PayPal Paga in 3 Rate (BNPL)
-    bnpl_df = outflow_df[outflow_df["merchant"] == "PayPal Paga in 3 Rate (BNPL)"]
+    # 1. PayPal Online Shopping & Paga in 3 Rate (BNPL)
+    bnpl_df = outflow_df[
+        (outflow_df["merchant"] == "PayPal Paga in 3 Rate (BNPL)")
+        | (
+            (outflow_df["category"] == "Online Shopping & PayPal")
+            & (~outflow_df["merchant"].isin(["PayPal SDD", "Commissione BPER (PayPal SDD)"]))
+        )
+    ]
     _add_audit_reactive_leak(
         "bnpl",
-        "PayPal Paga in 3 Rate (BNPL)",
-        "Shopping, Clothes & Amazon",
+        "PayPal Online Shopping & Paga in 3 Rate (BNPL)",
+        "Online Shopping & PayPal",
         bnpl_df,
         default_ratio=cut_ratios["bnpl"],
-        action_rule="Eliminate BNPL installments; use 24h Holding Vault before any >€30 purchase.",
+        action_rule="Eliminate BNPL installments & PayPal checkouts; use 24h Holding Vault before any >€30 purchase.",
     )
 
     # 2. Revolut Top-Ups (net of Revolut inbound returns)
@@ -191,8 +276,16 @@ def compute_financial_intelligence(
         net_offset_eur=rev_in_sum,
     )
 
-    # 3. Retail Apparel & Sports (Decathlon, PUMA Outlet, OVS, MediaWorld, Tiger)
-    retail_merchants = ["Decathlon", "PUMA Outlet Torino - Settimo Torin", "OVS TORINO", "MediaWorld", "TIGER STORE MILANO PO."]
+    # 3. Retail Apparel & Sports (Decathlon, PUMA Outlet, OVS, MediaWorld, Tiger, Full Trend)
+    retail_merchants = [
+        "Decathlon",
+        "PUMA Outlet Torino - Settimo Torin",
+        "OVS TORINO",
+        "MediaWorld",
+        "TIGER STORE MILANO PO.",
+        "TIGER STORE AEROPORTO. CASELLE TORIN",
+        "FULL TREND S.R.L.",
+    ]
     ret_df = outflow_df[outflow_df["merchant"].isin(retail_merchants)]
     _add_audit_reactive_leak(
         "retail",
@@ -232,7 +325,7 @@ def compute_financial_intelligence(
     ]
     _add_audit_reactive_leak(
         "dining",
-        "Restaurants, Pubs & Tickets (La Locomotiva, Ticketone)",
+        "Restaurants, Pubs, Tabacchi & Tickets",
         "Dining & Entertainment",
         dining_non_mensa,
         default_ratio=cut_ratios["dining"],
@@ -244,10 +337,10 @@ def compute_financial_intelligence(
     _add_audit_reactive_leak(
         "paypal_sdd",
         "PayPal SDD Micro-Charges",
-        "Transfers & P2P",
+        "Online Shopping & PayPal",
         pp_sdd_df,
         default_ratio=cut_ratios["paypal_sdd"],
-        action_rule="Audit and cancel recurring €2–€5 PayPal direct debits.",
+        action_rule="Audit and cancel recurring €2–€12 PayPal direct debits.",
     )
 
     # 8. BPER €0.40 PayPal SDD Commissions
@@ -283,6 +376,48 @@ def compute_financial_intelligence(
 
     total_saveable_period = float(leaks_df["Saveable This Period (€)"].sum()) if not leaks_df.empty else 0.0
     total_saveable_monthly = float(leaks_df["Saveable Per Month (€/mo)"].sum()) if not leaks_df.empty else 0.0
+    recurring_saveable_monthly = float(leaks_df["rec_save_mo"].sum()) if not leaks_df.empty else 0.0
+    onetime_saveable_monthly = float(leaks_df["one_save_mo"].sum()) if not leaks_df.empty else 0.0
+
+    # --- Recurrence-Aware Forward Savings Forecast ---
+    # 1. Committed Recurring Essential & Justified Living Baseline (Rent, Utilities, Groceries, Mensa, Remittances)
+    # Note: We exclude the investment portion of Fondi and Wise >€300 from living burn so it is counted as Savings/Investments!
+    committed_recurring_df = outflow_df[
+        (outflow_df["recurrence"] == "Recurring")
+        & (outflow_df["verdict"].isin(["Essential Pass", "Justified"]))
+    ]
+    raw_committed_recurring_total = float(committed_recurring_df["abs_amt"].sum())
+    # Subtract the investment portions (Fondi explicit + Wise 12k INR investment portions) from living expense burn
+    committed_living_recurring_total = max(
+        0.0,
+        raw_committed_recurring_total - fondi_explicit_eur - wise_invested_total_eur,
+    )
+    committed_recurring_monthly = committed_living_recurring_total / n_months
+
+    # 2. Unverified / Suspect Recurring Burn (BNPL, PayPal SDD, unverified recurring habits)
+    suspect_recurring_df = outflow_df[
+        (outflow_df["recurrence"] == "Recurring")
+        & (outflow_df["verdict"].isin(["Pending Review", "Guilty / Bad Purchase"]))
+    ]
+    suspect_recurring_monthly = float(suspect_recurring_df["abs_amt"].sum()) / n_months
+
+    # 3. Historical One-Time Spikes vs Justified One-Time Buffer
+    justified_onetime_df = outflow_df[
+        (outflow_df["recurrence"] != "Recurring")
+        & (outflow_df["verdict"].isin(["Justified", "Essential Pass"]))
+    ]
+    suspect_onetime_df = outflow_df[
+        (outflow_df["recurrence"] != "Recurring")
+        & (outflow_df["verdict"].isin(["Pending Review", "Guilty / Bad Purchase"]))
+    ]
+    justified_onetime_monthly = float(justified_onetime_df["abs_amt"].sum()) / n_months
+    suspect_onetime_monthly = float(suspect_onetime_df["abs_amt"].sum()) / n_months
+
+    # Forecasted steady-state monthly savings (including €100/mo Fondi PAC + Wise 12,000 INR/mo investment + additional cash savings):
+    post_cut_recurring_burn = committed_recurring_monthly + max(0.0, suspect_recurring_monthly - recurring_saveable_monthly)
+    planned_onetime_allowance = round(max(120.0, justified_onetime_monthly + max(0.0, suspect_onetime_monthly - onetime_saveable_monthly) * 0.5), 0)
+    forecast_monthly_savings = round(max(monthly_invested_avg_eur, base_monthly_income - post_cut_recurring_burn - planned_onetime_allowance), 0)
+    forecast_annual_savings = round(forecast_monthly_savings * 12.0, 0)
 
     # --- Audit-Reactive Financial Wisdom Score (0 - 100) ---
     # 1. Fixed Living Overhead Discipline (0-25 pts)
@@ -295,10 +430,8 @@ def compute_financial_intelligence(
     consistency_pts = max(0.0, 25.0 * (1.0 - (deficit_months / n_months)))
 
     # 3. Audit & Impulse Discipline (0-25 pts) -> Directly changes as user audits transactions!
-    # Unreviewed ('Pending Review') weighs 0.65 as suspect; 'Guilty' weighs 1.0; 'Justified' weighs 0.0!
     weighted_bad_eur = guilty_eur * 1.0 + pending_eur * 0.65
     bad_share = weighted_bad_eur / max(total_outflow, 1.0)
-    # If bad_share == 0 -> 25/25; if bad_share >= 0.45 -> 2/25
     hygiene_pts = max(2.0, min(25.0, 25.0 * (1.0 - (bad_share / 0.48))))
 
     # 4. Net Capital Retention & Audit Engagement (0-25 pts)
@@ -317,9 +450,12 @@ def compute_financial_intelligence(
     else:
         rating_label = "High Unverified / Discretionary Leakage — Audit & Restructure"
 
-    recommended_essential = round(essential_monthly, 0)
+    recommended_essential = round(committed_recurring_monthly if committed_recurring_monthly > 0 else essential_monthly, 0)
     recommended_save_floor = round(max(250.0, base_monthly_income * 0.18), 0)
-    recommended_save_optimal = round(min(base_monthly_income * 0.35, recommended_save_floor + total_saveable_monthly * 0.65), 0)
+    recommended_save_optimal = round(
+        max(recommended_save_floor, min(base_monthly_income * 0.42, forecast_monthly_savings)),
+        0,
+    )
     recommended_discretionary_cap = round(max(150.0, base_monthly_income - recommended_essential - recommended_save_floor), 0)
 
     return {
@@ -330,12 +466,35 @@ def compute_financial_intelligence(
         "total_inflow": round(total_inflow, 2),
         "total_outflow": round(total_outflow, 2),
         "net_retained": round(net_retained, 2),
+        "true_wealth_accumulated_eur": round(true_wealth_accumulated_eur, 2),
         "savings_rate_pct": round(savings_rate_pct, 1),
+        "cash_only_savings_rate_pct": round(cash_only_savings_rate_pct, 1),
+        "wise_gt300_cnt": wise_gt300_cnt,
+        "wise_invest_per_tx_eur": round(wise_invest_per_tx_eur, 2),
+        "wise_invested_total_inr": round(wise_invested_total_inr, 0),
+        "wise_invested_total_eur": round(wise_invested_total_eur, 2),
+        "fondi_explicit_eur": round(fondi_explicit_eur, 2),
+        "fondi_total_accredited_eur": round(fondi_total_accredited_eur, 2),
+        "total_invested_capital_eur": round(total_invested_capital_eur, 2),
+        "monthly_invested_avg_eur": round(monthly_invested_avg_eur, 2),
         "base_monthly_income": round(base_monthly_income, 2),
         "avg_monthly_inflow": round(avg_monthly_inflow, 2),
         "avg_monthly_outflow": round(avg_monthly_outflow, 2),
         "essential_monthly": round(essential_monthly, 2),
         "overhead_ratio_pct": round(overhead_ratio * 100.0, 1),
+        "recurring_out_total": round(recurring_out_total, 2),
+        "onetime_out_total": round(onetime_out_total, 2),
+        "recurring_monthly_burn": round(recurring_monthly_burn, 2),
+        "onetime_monthly_avg": round(onetime_monthly_avg, 2),
+        "committed_recurring_monthly": round(committed_recurring_monthly, 2),
+        "suspect_recurring_monthly": round(suspect_recurring_monthly, 2),
+        "justified_onetime_monthly": round(justified_onetime_monthly, 2),
+        "suspect_onetime_monthly": round(suspect_onetime_monthly, 2),
+        "recurring_saveable_monthly": round(recurring_saveable_monthly, 2),
+        "onetime_saveable_monthly": round(onetime_saveable_monthly, 2),
+        "forecast_monthly_savings": forecast_monthly_savings,
+        "forecast_annual_savings": forecast_annual_savings,
+        "planned_onetime_allowance": planned_onetime_allowance,
         "wisdom_score": wisdom_score,
         "rating_label": rating_label,
         "score_breakdown": {

@@ -21,6 +21,7 @@ DEFAULT_CATEGORIES = [
     ("Dining Out, Bars & Aperitivo", "Discretionary", 120.0, ""),
     ("Food Delivery (Glovo/Deliveroo/JustEat)", "Impulse", 40.0, ""),
     ("Shopping, Clothes & Amazon", "Impulse", 100.0, ""),
+    ("Online Shopping & PayPal", "Impulse", 100.0, ""),
     ("Subscriptions & Digital Services", "Discretionary", 45.0, ""),
     ("Coffee, Snacks & Tabacchi", "Impulse", 35.0, ""),
     ("Entertainment, Nightlife & Hobbies", "Discretionary", 80.0, ""),
@@ -41,6 +42,9 @@ DEFAULT_SETTINGS = {
     "interrogator_strictness": "Direct & Analytical",
     "suspect_threshold_eur": "15.0",
     "expected_return_rate": "0.08",
+    "eur_inr_rate": "90.0",
+    "wise_invest_inr_per_300": "12000.0",
+    "monthly_pac_fondi_eur": "100.0",
 }
 
 
@@ -73,10 +77,17 @@ def init_db() -> None:
             user_excuse TEXT DEFAULT '',
             ai_roast TEXT DEFAULT '',
             interrogation_history TEXT DEFAULT '[]',
+            recurrence TEXT DEFAULT 'One-Time',
             created_at TEXT NOT NULL
         )
         """
     )
+
+    # Ensure recurrence column exists on legacy DBs
+    cur.execute("PRAGMA table_info(transactions)")
+    existing_cols = {row["name"] for row in cur.fetchall()}
+    if "recurrence" not in existing_cols:
+        cur.execute("ALTER TABLE transactions ADD COLUMN recurrence TEXT DEFAULT 'One-Time'")
 
     cur.execute(
         """
@@ -121,6 +132,11 @@ def init_db() -> None:
             DEFAULT_CATEGORIES,
         )
     else:
+        # Ensure any newly added default categories exist
+        cur.executemany(
+            "INSERT OR IGNORE INTO categories (name, tier, monthly_limit, icon) VALUES (?, ?, ?, ?)",
+            DEFAULT_CATEGORIES,
+        )
         # Clean out legacy emojis from existing DB rows if present
         cur.execute("UPDATE categories SET icon = ''")
         cur.execute("UPDATE categories SET tier = 'Discretionary' WHERE tier = 'Want'")
@@ -196,6 +212,7 @@ def add_transaction(
     interrogation_history: Optional[List[Dict[str, str]]] = None,
     valuta_date: Optional[str] = None,
     merchant: str = "",
+    recurrence: str = "One-Time",
     allow_duplicate_manual: bool = True,
 ) -> Tuple[bool, Optional[int]]:
     conn = get_connection()
@@ -216,8 +233,8 @@ def add_transaction(
             INSERT INTO transactions (
                 tx_hash, tx_date, valuta_date, description, merchant, amount,
                 category, tx_type, source, verdict, regret_score, user_excuse,
-                ai_roast, interrogation_history, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ai_roast, interrogation_history, recurrence, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 tx_hash,
@@ -234,6 +251,7 @@ def add_transaction(
                 user_excuse.strip(),
                 ai_roast.strip(),
                 history_json,
+                recurrence,
                 now_iso,
             ),
         )
@@ -254,29 +272,29 @@ def update_transaction_verdict(
     ai_roast: str,
     interrogation_history: List[Dict[str, str]],
     category: Optional[str] = None,
+    recurrence: Optional[str] = None,
 ) -> None:
     conn = get_connection()
     history_json = json.dumps(interrogation_history, ensure_ascii=False)
+    fields = [
+        "verdict = ?",
+        "regret_score = ?",
+        "user_excuse = ?",
+        "ai_roast = ?",
+        "interrogation_history = ?",
+    ]
+    params: List[Any] = [verdict, int(regret_score), user_excuse, ai_roast, history_json]
     if category:
-        conn.execute(
-            """
-            UPDATE transactions
-            SET verdict = ?, regret_score = ?, user_excuse = ?, ai_roast = ?,
-                interrogation_history = ?, category = ?
-            WHERE id = ?
-            """,
-            (verdict, int(regret_score), user_excuse, ai_roast, history_json, category, tx_id),
-        )
-    else:
-        conn.execute(
-            """
-            UPDATE transactions
-            SET verdict = ?, regret_score = ?, user_excuse = ?, ai_roast = ?,
-                interrogation_history = ?
-            WHERE id = ?
-            """,
-            (verdict, int(regret_score), user_excuse, ai_roast, history_json, tx_id),
-        )
+        fields.append("category = ?")
+        params.append(category)
+    if recurrence:
+        fields.append("recurrence = ?")
+        params.append(recurrence)
+    params.append(tx_id)
+    conn.execute(
+        f"UPDATE transactions SET {', '.join(fields)} WHERE id = ?",
+        params,
+    )
     conn.commit()
     conn.close()
 
@@ -292,6 +310,7 @@ def bulk_update_transactions_by_ids(
     tx_ids: List[int],
     verdict: str,
     category: Optional[str] = None,
+    recurrence: Optional[str] = None,
     user_excuse: str = "",
 ) -> int:
     """Updates multiple transactions by their IDs in one batch."""
@@ -302,24 +321,18 @@ def bulk_update_transactions_by_ids(
     regret = 85 if verdict == "Guilty / Bad Purchase" else (15 if verdict == "Justified" else 0)
     note = user_excuse.strip() if user_excuse.strip() else f"Batch classified as {verdict}."
     placeholders = ",".join("?" for _ in tx_ids)
+    fields = ["verdict = ?", "regret_score = ?", "user_excuse = ?", "ai_roast = ?"]
+    params: List[Any] = [verdict, regret, user_excuse.strip(), note]
     if category:
-        cur.execute(
-            f"""
-            UPDATE transactions
-            SET verdict = ?, regret_score = ?, user_excuse = ?, ai_roast = ?, category = ?
-            WHERE id IN ({placeholders})
-            """,
-            [verdict, regret, user_excuse.strip(), note, category] + [int(x) for x in tx_ids],
-        )
-    else:
-        cur.execute(
-            f"""
-            UPDATE transactions
-            SET verdict = ?, regret_score = ?, user_excuse = ?, ai_roast = ?
-            WHERE id IN ({placeholders})
-            """,
-            [verdict, regret, user_excuse.strip(), note] + [int(x) for x in tx_ids],
-        )
+        fields.append("category = ?")
+        params.append(category)
+    if recurrence:
+        fields.append("recurrence = ?")
+        params.append(recurrence)
+    cur.execute(
+        f"UPDATE transactions SET {', '.join(fields)} WHERE id IN ({placeholders})",
+        params + [int(x) for x in tx_ids],
+    )
     changed = cur.rowcount
     conn.commit()
     conn.close()
@@ -339,30 +352,30 @@ def bulk_delete_transactions_by_ids(tx_ids: List[int]) -> int:
     return changed
 
 
-def bulk_update_merchant_verdict(merchant: str, verdict: str, category: Optional[str] = None) -> int:
-    """Updates all expenses for a given canonical merchant to the specified verdict (and optional category)."""
+def bulk_update_merchant_verdict(
+    merchant: str,
+    verdict: str,
+    category: Optional[str] = None,
+    recurrence: Optional[str] = None,
+) -> int:
+    """Updates all expenses for a given canonical merchant to the specified verdict (and optional category/recurrence)."""
     conn = get_connection()
     cur = conn.cursor()
     regret = 85 if verdict == "Guilty / Bad Purchase" else (15 if verdict == "Justified" else 0)
     note = f"Bulk classified as {verdict}."
+    fields = ["verdict = ?", "regret_score = ?", "ai_roast = ?"]
+    params: List[Any] = [verdict, regret, note]
     if category:
-        cur.execute(
-            """
-            UPDATE transactions
-            SET verdict = ?, regret_score = ?, ai_roast = ?, category = ?
-            WHERE merchant = ? AND amount < 0
-            """,
-            (verdict, regret, note, category, merchant),
-        )
-    else:
-        cur.execute(
-            """
-            UPDATE transactions
-            SET verdict = ?, regret_score = ?, ai_roast = ?
-            WHERE merchant = ? AND amount < 0
-            """,
-            (verdict, regret, note, merchant),
-        )
+        fields.append("category = ?")
+        params.append(category)
+    if recurrence:
+        fields.append("recurrence = ?")
+        params.append(recurrence)
+    params.append(merchant)
+    cur.execute(
+        f"UPDATE transactions SET {', '.join(fields)} WHERE merchant = ? AND amount < 0",
+        params,
+    )
     changed = cur.rowcount
     conn.commit()
     conn.close()
@@ -373,10 +386,11 @@ def get_transactions_df(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     verdict_filter: Optional[str] = None,
+    recurrence_filter: Optional[str] = None,
 ) -> pd.DataFrame:
     conn = get_connection()
     query = """
-        SELECT t.*, c.tier as category_tier
+        SELECT t.*, COALESCE(t.recurrence, 'One-Time') as recurrence_clean, c.tier as category_tier
         FROM transactions t
         LEFT JOIN categories c ON t.category = c.name
         WHERE 1=1
@@ -391,9 +405,15 @@ def get_transactions_df(
     if verdict_filter and verdict_filter != "All":
         query += " AND t.verdict = ?"
         params.append(verdict_filter)
+    if recurrence_filter and recurrence_filter != "All":
+        query += " AND COALESCE(t.recurrence, 'One-Time') = ?"
+        params.append(recurrence_filter)
 
     query += " ORDER BY t.tx_date DESC, t.id DESC"
     df = pd.read_sql_query(query, conn, params=params)
+    if not df.empty and "recurrence_clean" in df.columns:
+        df["recurrence"] = df["recurrence_clean"]
+        df.drop(columns=["recurrence_clean"], inplace=True)
     conn.close()
     return df
 

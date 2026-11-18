@@ -8,14 +8,14 @@ import pandas as pd
 from pypdf import PdfReader
 
 
-# Merchant keyword dictionary tailored to BPER statements (including Torino/Milano local merchants)
+# Merchant keyword dictionary tailored to BPER & Banca Popolare di Sondrio statements (Torino/Milano local merchants)
 MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
     (
         [
             "ESSELUNGA", "CONAD", "COOP", "CARREFOUR", "LIDL", "EUROSPIN", "MD SPA",
             "PAM ", "PENNY", "ALDI", "DESPAR", "IPER ", "TIGROS", "BENNET", "FAMILA",
             "SUPERMERCATO", "NATURAS", "TODIS", "IN'S MERCATO", "IN’S MERCATO", "CRAI",
-            "MINI SUPERMA", "HOSSAIN",
+            "MINI SUPERMA", "HOSSAIN", "CAROZZI FORMAGGI",
         ],
         "Groceries & Supermarket",
         "Essential Pass",
@@ -39,7 +39,7 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
     (
         [
             "BAR ", "CAFFE", "PASTICCERIA", "GELATERIA", "TABACCHI", "TABACCHERIA",
-            "AUTOGRILL", "DISTRIBUTORE AUTOMATICO", "JFP SNC",
+            "TABACC ", "RUBINO MARCELLO", "AUTOGRILL", "DISTRIBUTORE AUTOMATICO", "JFP SNC",
         ],
         "Coffee, Snacks & Tabacchi",
         "Pending Review",
@@ -47,42 +47,33 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
     (
         [
             "RISTORANTE", "TRATTORIA", "OSTERIA", "PUB ", "DISTRICT PUB", "BIRRERIA",
-            "ENOTECA", "APERITIVO", "THEFORK", "EATALY", "ROSSOPOMODORO", "ROADHOUSE",
-            "LA LOCOMOTIVA", "PIZZERIA", "SUSHI", "GIAPPONESE", "SKASSAPANZA", "SULTAN TURKISH",
-            "CIN CIN", "SAPPORO-LAMEN", "NARCISSE PARIS", "CHAPEAU CHARLEROI", "FRITEAPAPA",
-            "TWELVE", "BKNO SRL",
+            "BEER ROOM", "LA BUTTIGA", "SOL LEVANTE", "ENOTECA", "APERITIVO", "THEFORK",
+            "EATALY", "ROSSOPOMODORO", "ROADHOUSE", "LA LOCOMOTIVA", "PIZZERIA", "SUSHI",
+            "GIAPPONESE", "SKASSAPANZA", "SULTAN TURKISH", "CIN CIN", "SAPPORO-LAMEN",
+            "NARCISSE PARIS", "CHAPEAU CHARLEROI", "FRITEAPAPA", "TWELVE", "BKNO SRL",
+            "HHX SRL",
         ],
         "Dining Out, Bars & Aperitivo",
         "Pending Review",
     ),
     (
         [
-            "AMAZON", "AMZN", "ZALANDO", "ASOS", "SHEIN", "TEMU", "ALIEXPRESS",
-            "ZARA", "H&M", "UNIQLO", "DECATHLON", "MEDIAWORLD", "UNIEURO", "APPLE STORE",
-            "IKEA", "SEPHORA", "DOUGLAS", "FELTRINELLI", "MONDADORI", "EBAY", "VINTED",
-            "KLARNA", "SCALAPAY", "PAGA IN 3 RATE", "TIGER STORE", "SKINPORT", "DHL",
-            "OVS ", "PUMA OUTLET", "GIUNTI AL PUNTO",
-        ],
-        "Shopping, Clothes & Amazon",
-        "Pending Review",
-    ),
-    (
-        [
             "NETFLIX", "SPOTIFY", "DISNEY", "DAZN", "NOW TV", "APPLE.COM/BILL",
-            "GOOGLE*GOOGLE ONE", "GOOGLE PLAY", "GOOGLE *", "YOUTUBE", "PRIME VIDEO", "AMAZON PRIME",
-            "CHATGPT", "OPENAI", "CLAUDE", "PLAYSTATION", "STEAM", "XBOX", "NINTENDO",
-            "NY TIMES", "NYTIM", "PATREON", "TWITCH",
+            "GOOGLE*GOOGLE ONE", "GOOGLE PLAY", "GOOGLE *", "YOUTUBE", "PRIME VIDEO",
+            "NEGOZIO PRIME VIDEO", "AMAZON PRIME", "CHATGPT", "OPENAI", "CLAUDE",
+            "PLAYSTATION", "STEAM", "XBOX", "NINTENDO", "NY TIMES", "NYTIM", "PATREON",
+            "TWITCH",
         ],
         "Subscriptions & Digital Services",
         "Pending Review",
     ),
     (
         [
-            "ENEL", "ENI PLENITUDE", "ENI SPA - ENI REGOLAMENT", "A2A", "HERA", "IREN",
-            "EDISON", "ACEA", "SORGENIA", "TIM ", "TELECOM ITALIA", "VODAFONE", "WINDTRE",
-            "ILIAD", "FASTWEB", "SKY ", "AFFITTO", "DAVIDE MANCINI", "CANONE LOCAZIONE",
-            "CONDOMINIO", "MUTUO", "RATA MUTUO", "TARI", "ACQUA", "BOLLETTA", "PAGOPA",
-            "CBILL", "F24",
+            "ENEL", "ENI PLENITUDE", "ENI SPA - ENI REGOLAMENT", "ENI SPA",
+            "SDD-UTENZE", "A2A", "HERA", "IREN", "EDISON", "ACEA", "SORGENIA",
+            "TIM ", "TELECOM ITALIA", "VODAFONE", "WINDTRE", "ILIAD", "FASTWEB",
+            "SKY ", "AFFITTO", "DAVIDE MANCINI", "CANONE LOCAZIONE", "CONDOMINIO",
+            "MUTUO", "RATA MUTUO", "TARI", "ACQUA", "BOLLETTA", "PAGOPA", "CBILL", "F24",
         ],
         "Rent / Mortgage & Utilities",
         "Essential Pass",
@@ -93,7 +84,8 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
             "TELEPASS", "UNIPOLMOVE", "AUTOSTRADE", "TRENITALIA", "ITALO", "ATM MILAN",
             "CLESS TICKET ATM", "ATAC", "GTT.TO.IT", "GTT ", "TAP & GO TORINO", "DUOMO CORDUSIO",
             "GARIBALDI M2", "LAMPUGNANO M1", "RATP PARIS", "APP TEC NAMUR", "UBER ", "FREENOW",
-            "TAXI", "LIME", "BIRD", "ENJOY", "SHARE NOW", "PARCHEGGIO", "EASYPARK",
+            "TAXI", "LIME", "BIRD", "DOTT ", "DOTT BIKE", "ENJOY", "SHARE NOW", "PARCHEGGIO",
+            "EASYPARK",
         ],
         "Transport, Fuel & Transit",
         "Essential Pass",
@@ -110,6 +102,7 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
         [
             "RYANAIR", "EASYJET", "WIZZ", "ITA AIRWAYS", "LUFTHANSA", "BOOKING.COM",
             "AIRBNB", "EXPEDIA", "HOTEL", "ALBERGO", "OSTELLO", "CONSULATE",
+            "CHARLEROI BSCA",
         ],
         "Travel & Vacations",
         "Pending Review",
@@ -117,24 +110,45 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
     (
         [
             "CINEMA", "UCI ITALIA", "UCI CINEMAS", "THE SPACE", "TICKETONE", "TICKETMASTER",
-            "DICE.FM", "DISCOTECA", "CLUB", "PALESTRA", "MCFIT", "VIRGIN ACTIVE", "FITACTIVE",
+            "DICE.FM", "NAMELESS FESTIVAL", "MUSEES", "MUSEO", "DISCOTECA", "CLUB",
+            "PALESTRA", "MCFIT", "VIRGIN ACTIVE", "FITACTIVE",
         ],
         "Entertainment, Nightlife & Hobbies",
         "Pending Review",
     ),
     (
         [
+            "PAYPAL *PAGA IN 3 RATE", "PAGA IN 3 RATE", "PAYPAL EUROPE", "PAYPAL (EUROPE)",
+            "PAYPAL *TEMU", "PAYPAL *AWESOMEBKS", "PAYPAL *1NCRIVELSIS", "PAYPAL *IRUNNING",
+            "PAYPAL *", "KLARNA", "SCALAPAY", "TEMU", "SHEIN", "ALIEXPRESS", "EBAY",
+            "VINTED", "SKINPORT", "AWESOMEBKS", "IRUNNING",
+        ],
+        "Online Shopping & PayPal",
+        "Pending Review",
+    ),
+    (
+        [
+            "AMAZON", "AMZN", "ZALANDO", "ASOS", "ZARA", "H&M", "UNIQLO", "DECATHLON",
+            "MEDIAWORLD", "UNIEURO", "APPLE STORE", "IKEA", "SEPHORA", "DOUGLAS",
+            "FELTRINELLI", "MONDADORI", "TIGER STORE", "DHL", "OVS ", "PUMA OUTLET",
+            "GIUNTI AL PUNTO", "FULL TREND",
+        ],
+        "Shopping, Clothes & Amazon",
+        "Pending Review",
+    ),
+    (
+        [
             "SATISPAY", "REVOLUT", "WISE BRUXELLES", "WISE ", "BANCOMAT PAY", "BPLAY",
-            "RICARICA CARTA", "PRELIEVO", "ATM BPER", "PAYPAL EUROPE", "PAYPAL (EUROPE)",
-            "PAYPAL *", "VEENA CHATTERJEE", "BONIFICO ISTANTANEO",
+            "RICARICA CARTA", "PRELIEVO", "ATM BPER", "VEENA CHATTERJEE",
+            "CHATTERJEEVEEN", "BONIFICO ISTANTANEO",
         ],
         "Transfers & P2P (Satispay/Revolut/BancomatPay)",
         "Pending Review",
     ),
     (
         [
-            "COMMISSIONI", "COMM. BON.", "IMPOSTA DI BOLLO", "CANONE MENSILE", "COMPETENZE",
-            "SPESE TENUTA CONTO", "BPER BANCA",
+            "COMMISSIONI", "COMM. BON.", "IMPOSTA DI BOLLO", "RECUPERO IMPOSTA DI BOLLO",
+            "CANONE MENSILE", "COMPETENZE", "SPESE TENUTA CONTO", "BPER BANCA",
         ],
         "Bank Fees, Taxes & Bollo",
         "Essential Pass",
@@ -143,12 +157,14 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
         [
             "STIPENDIO", "EMOLUMENTI", "CAPGEMINI", "ACCREDITOCOMPENSI", "CEDOLINO",
             "BONIFICO A VOSTRO FAVORE", "RIMBORSO COMMERCIALE", "RIMBORSO", "DIVIDEND",
+            "STORNO SCRITTURA", "INTERESSI CREDITORI",
         ],
         "Income / Salary",
         "Income",
     ),
     (
         [
+            "SOTTOSCRIZIONI FONDI", "SOTTOSCRIZIONE ETICA", "FONDI E SICAV",
             "DIRECTA", "DEGIRO", "FINECO", "TRADE REPUBLIC", "SCALABLE", "PAC ",
             "ETF", "INVESTIMENT", "CONTO DEPOSITO",
         ],
@@ -230,17 +246,24 @@ def parse_italian_date(val: object) -> Optional[str]:
 
 def clean_bper_merchant(description: str) -> str:
     """
-    Extracts a clean, canonical counterparty/merchant name from BPER's multi-line PDF & CSV descriptions.
+    Extracts a clean, canonical counterparty/merchant name from BPER & Banca Popolare di Sondrio multi-line PDF & CSV descriptions.
     """
     desc = " ".join(str(description).replace("’", "'").split())
     up = desc.upper()
 
+    # Check bank commissions first so they are not swallowed by underlying merchant keywords
+    if "COMMISSIONI" in up and ("PAYPAL" in up or "SDD" in up):
+        return "Commissione BPER (PayPal SDD)"
+    if up.startswith(("COMMISSIONI", "COMM. BON.", "COMPETENZE - ONERI", "RECUPERO IMPOSTA DI BOLLO")):
+        return "Commissione Bonifico BPER"
+
     # Fast canonical merchant normalization so variants group together cleanly
     if "DAVIDE MANCINI" in up or "AFFITTO" in up:
-        if not up.startswith(("COMMISSIONI", "COMM. BON.")):
-            return "Affitto (Davide Mancini)"
+        return "Affitto (Davide Mancini)"
     if "CAPGEMINI" in up or "EMOLUMENTI" in up:
         return "Stipendio (Capgemini Italia)"
+    if "SOTTOSCRIZIONE ETICA" in up or "SOTTOSCRIZIONI FONDI" in up:
+        return "PAC Fondi Etica SGR"
     if "PELLEGRINI CM1726" in up or "PELLEGRINI" in up:
         return "Pellegrini Mensa"
     if "IN'S MERCATO" in up:
@@ -253,34 +276,56 @@ def clean_bper_merchant(description: str) -> str:
         return "Deliveroo"
     if "PAGA IN 3 RATE" in up:
         return "PayPal Paga in 3 Rate (BNPL)"
-    if "ADDEBITO SDD" in up and "PAYPAL" in up:
+    if ("ADDEBITO SDD" in up or "ADDEBITI PREAUTORIZZATI SDD" in up) and "PAYPAL" in up:
         return "PayPal SDD"
-    if "COMMISSIONI" in up and "PAYPAL" in up:
-        return "Commissione BPER (PayPal SDD)"
-    if up.startswith(("COMMISSIONI", "COMM. BON.")):
-        return "Commissione Bonifico BPER"
-    if "ENI SPA - ENI REGOLAMENT" in up:
+    if ("ADDEBITO SDD" in up or "ADDEBITI PREAUTORIZZATI SDD" in up) and "SATISPAY" in up:
+        return "Satispay Top-Up (SDD)"
+    if "ENI SPA" in up or "ENI PLENITUDE" in up:
         return "Eni Plenitude (Gas & Luce)"
     if "REVOLUT" in up:
-        if "SENT FROM REVOLUT" in up or "A FAVORE DI ARNAB MONDAL" in up:
+        if "SENT FROM REVOLUT" in up or "A FAVORE DI ARNAB MONDAL" in up or "ORD: ARNAB MONDAL" in up:
             return "Revolut (Inbound Transfer)"
         return "Revolut Top-Up / Transfer"
     if "WISE" in up:
         return "Wise Transfer"
+    if "AMAZON PRIME" in up or "NEGOZIO PRIME VIDEO" in up or "PRIME VIDEO" in up:
+        return "Amazon Prime"
     if "AMAZON" in up or "AMZN" in up:
         return "Amazon"
+    if "PAYPAL *TEMU" in up or "TEMU" in up:
+        return "PayPal (Temu)"
+    if "PAYPAL *NY TIMES" in up or "NY TIMES" in up or "NYTIM" in up:
+        return "New York Times (PayPal)"
+    if "PAYPAL *TRENITALIA" in up or "TRENITALIA" in up:
+        return "Trenitalia"
+    if "PAYPAL *DOTT" in up or "DOTT BIKE" in up:
+        return "Dott Mobility"
+    if "PAYPAL *AWESOMEBKS" in up:
+        return "PayPal (AwesomeBooks)"
+    if "PAYPAL *IRUNNING" in up:
+        return "PayPal (iRunning)"
+    if "PAYPAL *1NCRIVELSIS" in up:
+        return "PayPal (1ncrivelsis)"
     if "DECATHLON" in up:
         return "Decathlon"
     if "MEDIAWORLD" in up:
         return "MediaWorld"
     if "SKINPORT" in up:
         return "Skinport GmbH"
-    if "VEENA CHATTERJEE" in up:
+    if "VEENA CHATTERJEE" in up or "CHATTERJEEVEEN" in up:
         return "Bonifico (Veena Chatterjee)"
     if "CONSULATE GENERAL OF INDIA" in up:
         return "Consulate General of India"
     if "LA LOCOMOTIVA" in up:
         return "La Locomotiva"
+    if "LA BUTTIGA" in up:
+        return "La Buttiga Beer Room"
+    if "RUBINO MARCELLO TABACC" in up:
+        return "Tabaccheria Rubino Marcello"
+    if "TABACCHERIA FILADELFIA" in up:
+        return "Tabaccheria Filadelfia"
+    if "TABACCHERIA BUTERA" in up:
+        return "Tabaccheria Butera"
     if "GTT.TO.IT" in up or "TAP & GO TORINO" in up:
         return "GTT Torino Transit"
     if "ATM MILAN" in up or "DUOMO CORDUSIO" in up or "GARIBALDI M2" in up or "LAMPUGNANO M1" in up:
@@ -292,14 +337,20 @@ def clean_bper_merchant(description: str) -> str:
     if "GOOGLE*GOOGLE ONE" in up:
         return "Google One"
 
-    # 1. Older BPER format: "... c/o: MERCHANT" or "... Carta n. **4521 MERCHANT NAME - CITY"
+    # Generic PayPal *Merchant cleanup
+    m_pp = re.search(r"PAYPAL\s*\*\s*([A-Za-z0-9._\-]+)", desc, flags=re.IGNORECASE)
+    if m_pp:
+        sub_m = m_pp.group(1).strip()
+        return f"PayPal ({sub_m})"
+
+    # 1. Older BPER / Popolare di Sondrio format: "... c/o: MERCHANT" or "... Carta n. **4521 MERCHANT NAME - CITY"
     m_co = re.search(r"\bc/o:\s*(.+?)$", desc, flags=re.IGNORECASE)
     if m_co:
         cleaned = m_co.group(1).strip(" -:/")
         if len(cleaned) >= 2:
             return cleaned[:42]
 
-    m_card = re.search(r"Carta\s+[nN]\.\s*\*\*\d+\s+(.+?)(?:\s+-\s+[A-Z]{2,}|\s*$)", desc)
+    m_card = re.search(r"Carta\s+[nN]\.\s*\*\*\d+\s+(.+?)(?:\s+-\s+[A-Za-z]{2,}.*|\s*$)", desc)
     if m_card:
         cleaned = m_card.group(1).strip(" -:/")
         if len(cleaned) >= 2:
@@ -325,6 +376,61 @@ def clean_bper_merchant(description: str) -> str:
     return desc[:42]
 
 
+def infer_default_recurrence(description: str, merchant: str, category: str, amount: float) -> str:
+    """
+    Infers whether a transaction is 'Recurring' (monthly bills, rent, utilities, subscriptions,
+    PAC fund investments, Wise >€300 monthly investment transfers, BNPL installments, regular mensa/groceries/tabacchi/transit) or 'One-Time'.
+    """
+    if amount > 0:
+        up = str(description).upper()
+        if any(k in up for k in ("STIPENDIO", "EMOLUMENTI", "CAPGEMINI", "SALARY")):
+            return "Recurring"
+        return "One-Time"
+
+    up_desc = str(description).upper()
+    up_merch = str(merchant).upper()
+
+    if "WISE" in up_merch and abs(float(amount)) > 300.0:
+        return "Recurring"
+
+    # Known recurring commitments, subscriptions, utilities, PAC, mensa, groceries
+    recurring_merchants = (
+        "AFFITTO (DAVIDE MANCINI)",
+        "ENI PLENITUDE (GAS & LUCE)",
+        "PAC FONDI ETICA SGR",
+        "AMAZON PRIME",
+        "NEW YORK TIMES (PAYPAL)",
+        "GOOGLE ONE",
+        "PELLEGRINI MENSA",
+        "IN'S MERCATO",
+        "BENNET",
+        "PAYPAL PAGA IN 3 RATE (BNPL)",
+        "PAYPAL SDD",
+        "COMMISSIONE BPER (PAYPAL SDD)",
+        "COMMISSIONE BONIFICO BPER",
+        "GTT TORINO TRANSIT",
+        "TABACCHERIA FILADELFIA",
+        "TABACCHERIA BUTERA",
+        "TABACCHERIA RUBINO MARCELLO",
+    )
+    if any(rm in up_merch for rm in recurring_merchants):
+        return "Recurring"
+
+    if category in (
+        "Rent / Mortgage & Utilities",
+        "Subscriptions & Digital Services",
+        "Groceries & Supermarket",
+        "Bank Fees, Taxes & Bollo",
+        "Savings & Investments",
+    ):
+        return "Recurring"
+
+    if any(k in up_desc for k in ("TIPO:CORE-RCUR", "SOTTOSCRIZIONE ETICA", "SOTTOSCRIZIONI FONDI", "CANONE", "ABBONAMENTO")):
+        return "Recurring"
+
+    return "One-Time"
+
+
 def classify_bper_transaction(description: str, amount: float, suspect_threshold: float = 15.0) -> Tuple[str, str]:
     upper_desc = str(description).replace("’", "'").upper()
 
@@ -335,14 +441,28 @@ def classify_bper_transaction(description: str, amount: float, suspect_threshold
                     return cat, "Income"
         return "Income / Salary", "Income"
 
-    # Check bank fees & rent first so "COMMISSIONI ... Davide Mancini" doesn't get misclassified as rent
-    if upper_desc.startswith(("COMMISSIONI", "COMM. BON.")):
+    # Check bank fees first so "COMMISSIONI ... Davide Mancini" or "COMMISSIONI ... PayPal" doesn't get misclassified
+    if upper_desc.startswith(("COMMISSIONI", "COMM. BON.", "COMPETENZE - ONERI", "RECUPERO IMPOSTA DI BOLLO")):
         return "Bank Fees, Taxes & Bollo", "Essential Pass"
+
+    # Prevent "Carta n. **4521 ... GARIBALDI M2" from matching "PAM " or "IP " accidentally
+    if any(k in upper_desc for k in ("GARIBALDI M2", "LAMPUGNANO M1", "DUOMO CORDUSIO", "ATM MILAN", "GTT.TO.IT", "TAP & GO TORINO", "RATP PARIS")):
+        return "Transport, Fuel & Transit", "Essential Pass"
+
+    # Monthly €100 stock/fund investments ("SOTTOSCRIZIONI FONDI E SICAV")
+    if any(k in upper_desc for k in ("SOTTOSCRIZIONI FONDI", "SOTTOSCRIZIONE ETICA", "FONDI E SICAV")):
+        return "Savings & Investments", "Justified"
+
+    # Wise transfers > €300 include the 12,000 INR investment allocation
+    if "WISE" in upper_desc and abs(float(amount)) > 300.0:
+        return "Transfers & P2P (Satispay/Revolut/BancomatPay)", "Justified"
 
     for keywords, cat, verdict in MERCHANT_RULES:
         if any(k in upper_desc for k in keywords):
             if verdict == "Essential Pass":
                 return cat, "Essential Pass"
+            if verdict == "Justified":
+                return cat, "Justified"
             return cat, "Pending Review"
 
     if abs(amount) >= suspect_threshold:
@@ -350,11 +470,14 @@ def classify_bper_transaction(description: str, amount: float, suspect_threshold
     return "Other / Uncategorized", "Pending Review"
 
 
-# --- BPER PDF PARSER (Mod. 05.13.0011 Riepilogo Mensile) ---
+# --- BPER & BANCA POPOLARE DI SONDRIO PDF PARSER ---
 
 _PDF_TX_LINE_RE = re.compile(
     r"^\s*(\d{1,2}/\d{2}/\d{2,4})\s+([DA])\s+([\d.,]+)\s+(\d{1,2}/\d{2}/\d{2,4})\s+(.*)$"
 )
+
+_SONDRIO_DATE_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
+_SONDRIO_NUM_RE = re.compile(r"^[\d.]+,\d{2}$")
 
 _PDF_IGNORE_LINES = (
     "Mod. 05.13.0011",
@@ -377,10 +500,105 @@ _PDF_IGNORE_LINES = (
 )
 
 
+def _extract_sondrio_hc42_records(reader: PdfReader) -> List[Dict[str, object]]:
+    """
+    Parses Banca Popolare di Sondrio / BPER Group 'ESTRATTO CONTO' PDFs (e.g. HC42_31_01_2026.pdf)
+    using PDF text coordinate positioning for Data, Valuta, Movimenti Dare, Movimenti Avere, and Descrizione operazione.
+    """
+    records: List[Dict[str, object]] = []
+    for page in reader.pages:
+        page_items: List[Tuple[float, float, str]] = []
+
+        def _visitor(text: str, cm: object, tm: List[float], font_dict: object, font_size: float) -> None:
+            t = text.strip()
+            if t:
+                page_items.append((float(tm[4]), float(tm[5]), t))
+
+        page.extract_text(visitor_text=_visitor)
+        header_y = next((y for _, y, t in page_items if t == "Descrizione operazione"), None)
+        if header_y is None:
+            continue
+
+        rows_by_y: List[Dict[str, object]] = []
+        for x, y, t in page_items:
+            if y >= header_y - 2.0 or y < 40.0:
+                continue
+            placed = False
+            for bucket in rows_by_y:
+                if abs(float(bucket["y"]) - y) <= 2.2:
+                    bucket["items"].append((x, t))
+                    placed = True
+                    break
+            if not placed:
+                rows_by_y.append({"y": y, "items": [(x, t)]})
+
+        rows_by_y.sort(key=lambda b: float(b["y"]), reverse=True)
+        cur_tx: Optional[Dict[str, object]] = None
+
+        for bucket in rows_by_y:
+            items_sorted = sorted(bucket["items"], key=lambda it: it[0])
+            texts = [t for _, t in items_sorted]
+            joined = " ".join(texts)
+
+            if any(
+                k in joined
+                for k in (
+                    "Saldo iniziale",
+                    "Saldo finale",
+                    "Totale movimenti",
+                    "IMPOSTA DI BOLLO ASSOLTA",
+                    "Si rammenta che",
+                    "BANCA POPOLARE DI SONDRIO",
+                )
+            ):
+                if cur_tx is not None:
+                    records.append(cur_tx)
+                    cur_tx = None
+                if "Saldo finale" in joined or "Totale movimenti" in joined:
+                    break
+                continue
+
+            d_op: Optional[str] = None
+            d_val: Optional[str] = None
+            dare: Optional[float] = None
+            avere: Optional[float] = None
+            desc_parts: List[str] = []
+
+            for x, t in items_sorted:
+                if x < 50.0 and _SONDRIO_DATE_RE.match(t):
+                    d_op = t
+                elif 50.0 <= x < 120.0 and _SONDRIO_DATE_RE.match(t):
+                    d_val = t
+                elif 120.0 <= x < 225.0 and _SONDRIO_NUM_RE.match(t):
+                    dare = parse_italian_number(t)
+                elif 225.0 <= x < 325.0 and _SONDRIO_NUM_RE.match(t):
+                    avere = parse_italian_number(t)
+                elif x >= 325.0:
+                    desc_parts.append(t)
+
+            if d_op and d_val and (dare is not None or avere is not None):
+                if cur_tx is not None:
+                    records.append(cur_tx)
+                signed_amt = -abs(dare) if dare is not None else abs(avere or 0.0)
+                cur_tx = {
+                    "tx_date": parse_italian_date(d_op),
+                    "valuta_date": parse_italian_date(d_val),
+                    "amount": round(signed_amt, 2),
+                    "desc_lines": desc_parts,
+                }
+            elif cur_tx is not None and desc_parts:
+                cur_tx["desc_lines"].extend(desc_parts)
+
+        if cur_tx is not None:
+            records.append(cur_tx)
+
+    return records
+
+
 def parse_bper_pdf_bytes(raw_bytes: bytes, filename: str = "statement.pdf", suspect_threshold: float = 15.0) -> Tuple[pd.DataFrame, str]:
     """
-    Parses BPER Banca PDF monthly statements ('OPERAZIONI SU SERVIZI DI PAGAMENTO - RIEPILOGO MENSILE').
-    Handles multi-line transaction descriptions and page breaks across FOGLIO N. 1..N.
+    Parses BPER Banca PDF monthly statements ('OPERAZIONI SU SERVIZI DI PAGAMENTO - RIEPILOGO MENSILE', e.g. LQ10_*.pdf)
+    as well as Banca Popolare di Sondrio / BPER Group statements ('ESTRATTO CONTO', e.g. HC42_*.pdf).
     """
     try:
         reader = PdfReader(io.BytesIO(raw_bytes))
@@ -422,8 +640,12 @@ def parse_bper_pdf_bytes(raw_bytes: bytes, filename: str = "statement.pdf", susp
     if current_tx is not None:
         records.append(current_tx)
 
+    # Fallback to Banca Popolare di Sondrio (HC42 Estratto Conto) coordinate table layout
     if not records:
-        return pd.DataFrame(), f"No BPER transactions found in {filename}."
+        records = _extract_sondrio_hc42_records(reader)
+
+    if not records:
+        return pd.DataFrame(), f"No bank transactions found in {filename}."
 
     parsed_rows = []
     for rec in records:
@@ -433,6 +655,7 @@ def parse_bper_pdf_bytes(raw_bytes: bytes, filename: str = "statement.pdf", susp
         v_date = str(rec["valuta_date"] or t_date)
         merchant = clean_bper_merchant(full_desc)
         cat, verdict = classify_bper_transaction(full_desc, amt, suspect_threshold=suspect_threshold)
+        recurrence = infer_default_recurrence(full_desc, merchant, cat, amt)
 
         parsed_rows.append(
             {
@@ -443,6 +666,7 @@ def parse_bper_pdf_bytes(raw_bytes: bytes, filename: str = "statement.pdf", susp
                 "Description": full_desc,
                 "Amount (€)": amt,
                 "Category": cat,
+                "Recurrence": recurrence,
                 "Status / Verdict": verdict,
             }
         )
@@ -610,6 +834,7 @@ def parse_bper_file(uploaded_file, suspect_threshold: float = 15.0) -> Tuple[pd.
 
         merchant = clean_bper_merchant(full_desc)
         cat, verdict = classify_bper_transaction(full_desc, amt, suspect_threshold=suspect_threshold)
+        recurrence = infer_default_recurrence(full_desc, merchant, cat, amt)
 
         parsed_rows.append(
             {
@@ -620,6 +845,7 @@ def parse_bper_file(uploaded_file, suspect_threshold: float = 15.0) -> Tuple[pd.
                 "Description": full_desc,
                 "Amount (€)": round(amt, 2),
                 "Category": cat,
+                "Recurrence": recurrence,
                 "Status / Verdict": verdict,
             }
         )
