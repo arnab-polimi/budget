@@ -326,19 +326,30 @@ with tabs[0]:
     with f_col1:
         timeframe = st.selectbox(
             "Period",
-            options=["Current Month", "Last 30 Days", "Last 90 Days", "Year to Date", "All Time"],
-            index=3,
+            options=["Current Month", "Last 30 Days", "Last 90 Days", "Year to Date", "2026 Only", "2025 Only", "All Time"],
+            index=6,
         )
     if timeframe == "Current Month":
         start_d = first_of_month.strftime("%Y-%m-%d")
+        end_d = None
     elif timeframe == "Last 30 Days":
         start_d = (today - timedelta(days=30)).strftime("%Y-%m-%d")
+        end_d = None
     elif timeframe == "Last 90 Days":
         start_d = (today - timedelta(days=90)).strftime("%Y-%m-%d")
+        end_d = None
     elif timeframe == "Year to Date":
         start_d = today.replace(month=1, day=1).strftime("%Y-%m-%d")
+        end_d = None
+    elif timeframe == "2026 Only":
+        start_d = "2026-01-01"
+        end_d = "2026-12-31"
+    elif timeframe == "2025 Only":
+        start_d = "2025-01-01"
+        end_d = "2025-12-31"
     else:
         start_d = None
+        end_d = None
 
     with f_col2:
         verdict_filter = st.selectbox(
@@ -355,7 +366,7 @@ with tabs[0]:
     with f_col4:
         search_q = st.text_input("Filter ledger", placeholder="Merchant, category, or note...")
 
-    df = get_transactions_df(start_date=start_d, verdict_filter=verdict_filter, recurrence_filter=recurrence_filter)
+    df = get_transactions_df(start_date=start_d, end_date=end_d, verdict_filter=verdict_filter, recurrence_filter=recurrence_filter)
     if search_q and not df.empty:
         mask = (
             df["description"].str.contains(search_q, case=False, na=False)
