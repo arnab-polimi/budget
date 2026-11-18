@@ -31,6 +31,7 @@ from database import (
     bulk_update_merchant_verdict,
     bulk_update_transactions_by_ids,
     bulk_delete_transactions_by_ids,
+    reclassify_all_transactions,
     delete_transaction,
     get_transactions_df,
     add_to_wishlist,
@@ -520,7 +521,8 @@ with tabs[0]:
                 )
                 st.plotly_chart(fig_daily, width="stretch")
 
-            st.markdown("##### Monthly Budget Utilization")
+            n_months_view = max(int(expenses_df["tx_date"].str.slice(0, 7).nunique()), 1)
+            st.markdown(f"##### Monthly Budget Utilization ({n_months_view} month{'s' if n_months_view > 1 else ''} in view · Avg/mo vs Limit)")
             cat_spend = expenses_df.groupby("category")["abs_amount"].sum().to_dict()
             env_cols = st.columns(3)
             expense_cats = categories_df[~categories_df["tier"].isin(["Income", "Savings"])].reset_index(drop=True)
@@ -528,11 +530,12 @@ with tabs[0]:
                 cname = crow["name"]
                 limit = float(crow["monthly_limit"])
                 spent = float(cat_spend.get(cname, 0.0))
-                pct = min(spent / limit, 1.0) if limit > 0 else 0.0
+                avg_mo = spent / n_months_view
+                pct = min(avg_mo / limit, 1.0) if limit > 0 else 0.0
                 with env_cols[idx % 3]:
                     st.progress(
                         pct,
-                        text=f"{cname} — €{spent:.0f} / €{limit:.0f}",
+                        text=f"{cname} — €{avg_mo:.0f}/mo vs €{limit:.0f} (€{spent:,.0f} total)",
                     )
 
         st.divider()
@@ -565,6 +568,23 @@ with tabs[0]:
 # TAB 2: ADVISORY & SAVINGS PLAN
 # ==============================================================================
 with tabs[1]:
+    adv_ctrl1, adv_ctrl2 = st.columns([1.2, 2.8])
+    with adv_ctrl1:
+        adv_scope = st.selectbox(
+            "Forecast Scope",
+            options=["All Time", "2026 Only", "2025 Only", "Last 6 Months"],
+            index=0,
+        )
+    if adv_scope == "2026 Only" and not all_tx_df.empty:
+        adv_tx_df = all_tx_df[(all_tx_df["tx_date"] >= "2026-01-01") & (all_tx_df["tx_date"] <= "2026-12-31")].copy()
+    elif adv_scope == "2025 Only" and not all_tx_df.empty:
+        adv_tx_df = all_tx_df[(all_tx_df["tx_date"] >= "2025-01-01") & (all_tx_df["tx_date"] <= "2025-12-31")].copy()
+    elif adv_scope == "Last 6 Months" and not all_tx_df.empty:
+        max_ym = sorted(all_tx_df["tx_date"].str.slice(0, 7).unique())[-6:]
+        adv_tx_df = all_tx_df[all_tx_df["tx_date"].str.slice(0, 7).isin(max_ym)].copy()
+    else:
+        adv_tx_df = all_tx_df
+
     with st.expander("Interactive Savings Simulator & Audit Filter", expanded=False):
         st.caption(
             "Adjust your target reduction percentage for each channel, or toggle whether transactions you already cleared as 'Justified' are excluded from savings leaks."
@@ -599,13 +619,26 @@ with tabs[1]:
     }
 
     intel = compute_financial_intelligence(
-        all_tx_df,
+        adv_tx_df,
         hourly_wage=hourly_wage,
         custom_cut_ratios=custom_ratios,
         include_justified_in_leaks=include_justified_toggle,
         eur_inr_rate=eur_inr_rate,
         wise_invest_inr_per_300=wise_invest_inr_per_300,
         monthly_pac_fondi_eur=monthly_pac_fondi_eur,
+    )
+    full_intel_yoy = (
+        compute_financial_intelligence(
+            all_tx_df,
+            hourly_wage=hourly_wage,
+            custom_cut_ratios=custom_ratios,
+            include_justified_in_leaks=include_justified_toggle,
+            eur_inr_rate=eur_inr_rate,
+            wise_invest_inr_per_300=wise_invest_inr_per_300,
+            monthly_pac_fondi_eur=monthly_pac_fondi_eur,
+        )
+        if adv_scope != "All Time" and not all_tx_df.empty
+        else intel
     )
     if intel.get("empty"):
         st.caption("No transaction data available for advisory analysis.")
@@ -768,9 +801,64 @@ with tabs[1]:
         )
 
         st.write("")
+        st.markdown("##### Monthly Cashflow, Investments & Recurring vs. One-Time Trend")
+        ms_df = intel["monthly_summary_df"]
+        if not ms_df.empty:
+            trend_long = ms_df.melt(
+                id_vars=["Month"],
+                value_vars=["Inflow (€)", "Recurring Outflow (€)", "One-Time Outflow (€)", "Invested (Fondi + Wise 12k INR) (€)"],
+                var_name="Metric",
+                value_name="EUR",
+            )
+            fig_trend = px.bar(
+                trend_long,
+                x="Month",
+                y="EUR",
+                color="Metric",
+                barmode="group",
+                color_discrete_map={
+                    "Inflow (€)": "#10B981",
+                    "Recurring Outflow (€)": "#3B82F6",
+                    "One-Time Outflow (€)": "#F59E0B",
+                    "Invested (Fondi + Wise 12k INR) (€)": "#8B5CF6",
+                },
+                labels={"Month": "", "EUR": "EUR", "Metric": ""},
+            )
+            fig_trend.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(family="Inter, sans-serif", size=11, color="#9E9EA8"),
+                margin=dict(l=0, r=10, t=10, b=0),
+                height=310,
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor="#18181B", zeroline=False),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_trend, width="stretch")
+
+        yoy_df = full_intel_yoy.get("yearly_comparison_df", pd.DataFrame())
+        if not yoy_df.empty and len(yoy_df) >= 2:
+            st.markdown("##### Year-over-Year Comparison (2025 vs. 2026)")
+            st.dataframe(
+                yoy_df,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Inflow (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Avg Inflow/mo (€)": st.column_config.NumberColumn(format="€ %.2f/mo"),
+                    "Total Outflow (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Avg Recurring/mo (€)": st.column_config.NumberColumn(format="€ %.2f/mo"),
+                    "Avg One-Time/mo (€)": st.column_config.NumberColumn(format="€ %.2f/mo"),
+                    "Invested (PAC + Wise) (€)": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Net Wealth (+Invested) (€)": st.column_config.NumberColumn(format="€ %+.2f"),
+                    "Effective Save Rate (%)": st.column_config.NumberColumn(format="%.1f%%"),
+                },
+            )
+
+        st.write("")
         st.markdown("##### Month-by-Month Cashflow, Investments & Recurring vs. One-Time Breakdown")
         st.dataframe(
-            intel["monthly_summary_df"],
+            ms_df,
             width="stretch",
             hide_index=True,
             column_config={
@@ -1583,4 +1671,13 @@ with tabs[6]:
             for _, crow in edited_cats.iterrows():
                 update_category_budget(crow["name"], crow["tier"], float(crow["monthly_limit"]))
             trigger_auto_github_sync("update allocations")
+            st.rerun()
+
+        st.divider()
+        st.markdown("##### Ledger Maintenance")
+        st.caption("Re-apply the latest merchant rules, PayPal/online shopping separation, and recurring detection across all stored transactions (preserves your audited verdicts).")
+        if st.button("Re-run Smart Categorizer on All Transactions", width="stretch"):
+            reclassified_n = reclassify_all_transactions()
+            trigger_auto_github_sync("smart reclassify ledger")
+            st.toast(f"Re-evaluated {reclassified_n} transactions.")
             st.rerun()

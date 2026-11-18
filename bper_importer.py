@@ -8,14 +8,15 @@ import pandas as pd
 from pypdf import PdfReader
 
 
-# Merchant keyword dictionary tailored to BPER & Banca Popolare di Sondrio statements (Torino/Milano local merchants)
+# Merchant keyword dictionary tailored to BPER & Banca Popolare di Sondrio statements (Torino/Milano + Travel)
 MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
     (
         [
             "ESSELUNGA", "CONAD", "COOP", "CARREFOUR", "LIDL", "EUROSPIN", "MD SPA",
             "PAM ", "PENNY", "ALDI", "DESPAR", "IPER ", "TIGROS", "BENNET", "FAMILA",
             "SUPERMERCATO", "NATURAS", "TODIS", "IN'S MERCATO", "IN’S MERCATO", "CRAI",
-            "MINI SUPERMA", "HOSSAIN", "CAROZZI FORMAGGI",
+            "MINI SUPERMA", "HOSSAIN", "CAROZZI FORMAGGI", "MERCATO'", "ALBERT HEIJN",
+            "AH TO GO", "SPAR ", "CRF MKT",
         ],
         "Groceries & Supermarket",
         "Essential Pass",
@@ -30,16 +31,17 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
     (
         [
             "GLOVO", "DELIVEROO", "JUST EAT", "JUSTEAT", "UBER EATS", "UBEREATS",
-            "POKE HOUSE", "MCDONALD", "BURGER KING", "KFC", "OLD WILD WEST", "STARBUCKS",
-            "DOMINO", "OLIMPICO PIZZA", "KEBAB",
+            "POKE HOUSE", "MCDONALD", "MCD MILANO", "BURGER KING", "KFC", "OLD WILD WEST",
+            "STARBUCKS", "DOMINO", "OLIMPICO PIZZA", "KEBAB",
         ],
         "Food Delivery (Glovo/Deliveroo/JustEat)",
         "Pending Review",
     ),
     (
         [
-            "BAR ", "CAFFE", "PASTICCERIA", "GELATERIA", "TABACCHI", "TABACCHERIA",
-            "TABACC ", "RUBINO MARCELLO", "AUTOGRILL", "DISTRIBUTORE AUTOMATICO", "JFP SNC",
+            "BAR ", "CAFFE", "COFFEE CAPP", "PASTICCERIA", "GELATERIA", "TABACCHI",
+            "TABACCHERIA", "TABACC ", "RUBINO MARCELLO", "AUTOGRILL",
+            "DISTRIBUTORE AUTOMATICO", "JFP SNC", "SMART SRL",
         ],
         "Coffee, Snacks & Tabacchi",
         "Pending Review",
@@ -51,7 +53,9 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
             "EATALY", "ROSSOPOMODORO", "ROADHOUSE", "LA LOCOMOTIVA", "PIZZERIA", "SUSHI",
             "GIAPPONESE", "SKASSAPANZA", "SULTAN TURKISH", "CIN CIN", "SAPPORO-LAMEN",
             "NARCISSE PARIS", "CHAPEAU CHARLEROI", "FRITEAPAPA", "TWELVE", "BKNO SRL",
-            "HHX SRL",
+            "HHX SRL", "MANHATTNS BURGERS", "AI 4 ASSI", "SPICCHI DI MOLE", "WOK TO GO",
+            "EXKI ", "MYSICILYFOOD", "WAFFLE FACTORY", "STREAT SRL", "FOCACCERIA",
+            "LA TANA DEL LUPO", "QUEEN'S ROSE", "HIGHLANDER B.V",
         ],
         "Dining Out, Bars & Aperitivo",
         "Pending Review",
@@ -62,7 +66,7 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
             "GOOGLE*GOOGLE ONE", "GOOGLE PLAY", "GOOGLE *", "YOUTUBE", "PRIME VIDEO",
             "NEGOZIO PRIME VIDEO", "AMAZON PRIME", "CHATGPT", "OPENAI", "CLAUDE",
             "PLAYSTATION", "STEAM", "XBOX", "NINTENDO", "NY TIMES", "NYTIM", "PATREON",
-            "TWITCH",
+            "TWITCH", "MOBIMATTER",
         ],
         "Subscriptions & Digital Services",
         "Pending Review",
@@ -72,8 +76,9 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
             "ENEL", "ENI PLENITUDE", "ENI SPA - ENI REGOLAMENT", "ENI SPA",
             "SDD-UTENZE", "A2A", "HERA", "IREN", "EDISON", "ACEA", "SORGENIA",
             "TIM ", "TELECOM ITALIA", "VODAFONE", "WINDTRE", "ILIAD", "FASTWEB",
-            "SKY ", "AFFITTO", "DAVIDE MANCINI", "CANONE LOCAZIONE", "CONDOMINIO",
-            "MUTUO", "RATA MUTUO", "TARI", "ACQUA", "BOLLETTA", "PAGOPA", "CBILL", "F24",
+            "SKY ", "AFFITTO", "DAVIDE MANCINI", "GIORGIO BARISONE", "CANONE LOCAZIONE",
+            "CONDOMINIO", "MUTUO", "RATA MUTUO", "TARI", "ACQUA", "BOLLETTA", "PAGOPA",
+            "CBILL", "F24", "LAUNDRY 2 DAY",
         ],
         "Rent / Mortgage & Utilities",
         "Essential Pass",
@@ -82,10 +87,11 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
         [
             "ENI STATION", "IP ", "Q8", "TAMOIL", "ESSO", "SHELL", "BENZINA", "DISTRIBUTORE",
             "TELEPASS", "UNIPOLMOVE", "AUTOSTRADE", "TRENITALIA", "ITALO", "ATM MILAN",
-            "CLESS TICKET ATM", "ATAC", "GTT.TO.IT", "GTT ", "TAP & GO TORINO", "DUOMO CORDUSIO",
+            "CLESS TICKET ATM", "ATAC", "GTT.TO.IT", "GTT ", "TAP & GO", "DUOMO CORDUSIO",
             "GARIBALDI M2", "LAMPUGNANO M1", "RATP PARIS", "APP TEC NAMUR", "UBER ", "FREENOW",
             "TAXI", "LIME", "BIRD", "DOTT ", "DOTT BIKE", "ENJOY", "SHARE NOW", "PARCHEGGIO",
-            "EASYPARK",
+            "EASYPARK", "FLIBCO", "STIB ", "STIBMIVB", "STIB/MIVB", "NS REIZIGERS",
+            "OVPAY.NL", "NMBS ", "MILANO CENTRALE SELF", "TORINO P.S.SELF", "CHARLEROI AIRPORT",
         ],
         "Transport, Fuel & Transit",
         "Essential Pass",
@@ -110,8 +116,9 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
     (
         [
             "CINEMA", "UCI ITALIA", "UCI CINEMAS", "THE SPACE", "TICKETONE", "TICKETMASTER",
-            "DICE.FM", "NAMELESS FESTIVAL", "MUSEES", "MUSEO", "DISCOTECA", "CLUB",
-            "PALESTRA", "MCFIT", "VIRGIN ACTIVE", "FITACTIVE",
+            "DICE.FM", "NAMELESS FESTIVAL", "MUSEES", "MUSEUM", "MUSEO", "IRSNB",
+            "ASSOCIAZIONE ABBONAMEN", "BOSSCHE WINTER", "DISCOTECA", "CLUB", "PALESTRA",
+            "MCFIT", "VIRGIN ACTIVE", "FITACTIVE", "CASSA AUTOMATICA MELEZ",
         ],
         "Entertainment, Nightlife & Hobbies",
         "Pending Review",
@@ -131,7 +138,8 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
             "AMAZON", "AMZN", "ZALANDO", "ASOS", "ZARA", "H&M", "UNIQLO", "DECATHLON",
             "MEDIAWORLD", "UNIEURO", "APPLE STORE", "IKEA", "SEPHORA", "DOUGLAS",
             "FELTRINELLI", "MONDADORI", "TIGER STORE", "DHL", "OVS ", "PUMA OUTLET",
-            "GIUNTI AL PUNTO", "FULL TREND",
+            "GIUNTI AL PUNTO", "FULL TREND", "JACK JONES", "JACK  JONES", "TWINSPORT",
+            "ACTION 1387", "ROYAL SOUVENIRS", "TRN SHOP", "MAIOR SERVICE",
         ],
         "Shopping, Clothes & Amazon",
         "Pending Review",
@@ -139,8 +147,9 @@ MERCHANT_RULES: List[Tuple[List[str], str, str]] = [
     (
         [
             "SATISPAY", "REVOLUT", "WISE BRUXELLES", "WISE ", "BANCOMAT PAY", "BPLAY",
-            "RICARICA CARTA", "PRELIEVO", "ATM BPER", "VEENA CHATTERJEE",
-            "CHATTERJEEVEEN", "BONIFICO ISTANTANEO",
+            "RICARICA CARTA", "CARTA PREPAGATA", "PRELIEVO", "ATM BPER",
+            "VEENA CHATTERJEE", "CHATTERJEEVEEN", "BONIFICO ISTANTANEO",
+            "VOSTRA DISPOSIZIONE", "DISPOSIZIONE BONIFICO",
         ],
         "Transfers & P2P (Satispay/Revolut/BancomatPay)",
         "Pending Review",
@@ -258,22 +267,46 @@ def clean_bper_merchant(description: str) -> str:
         return "Commissione Bonifico BPER"
 
     # Fast canonical merchant normalization so variants group together cleanly
-    if "DAVIDE MANCINI" in up or "AFFITTO" in up:
+    if "DAVIDE MANCINI" in up:
         return "Affitto (Davide Mancini)"
+    if "GIORGIO BARISONE" in up:
+        if "RENT" in up or "AFFITTO" in up:
+            return "Affitto (Giorgio Barisone)"
+        return "Giorgio Barisone (Casa)"
+    if "AFFITTO" in up:
+        return "Affitto"
     if "CAPGEMINI" in up or "EMOLUMENTI" in up:
         return "Stipendio (Capgemini Italia)"
     if "SOTTOSCRIZIONE ETICA" in up or "SOTTOSCRIZIONI FONDI" in up:
         return "PAC Fondi Etica SGR"
     if "PELLEGRINI CM1726" in up or "PELLEGRINI" in up:
         return "Pellegrini Mensa"
-    if "IN'S MERCATO" in up:
+    if "IN'S MERCATO" in up or "IN’S MERCATO" in up:
         return "In's Mercato"
+    if "MERCATO'" in up:
+        return "Mercatò Supermarket"
     if "BENNET" in up:
         return "Bennet"
+    if "ALBERT HEIJN" in up or "AH TO GO" in up:
+        return "Albert Heijn (NL)"
     if "GLOVO" in up:
         return "Glovo"
     if "DELIVEROO" in up:
         return "Deliveroo"
+    if "CARTA PREPAGATA" in up or "RIC.PREP." in up:
+        return "Ricarica Carta Prepagata"
+    if "OVPAY.NL" in up or up.startswith("NLOV") or " NLOV" in up:
+        return "OVpay Transit (NL)"
+    if "NS REIZIGERS" in up:
+        return "NS Dutch Railways"
+    if "STIB " in up or "STIBMIVB" in up or "STIB/MIVB" in up:
+        return "STIB/MIVB Brussels Transit"
+    if "FLIBCO" in up:
+        return "Flibco Airport Shuttle"
+    if "MILANO CENTRALE SELF" in up or "TORINO P.S.SELF" in up:
+        return "Trenitalia Ticket Machine"
+    if "TAP & GO" in up:
+        return "GTT Torino Transit"
     if "PAGA IN 3 RATE" in up:
         return "PayPal Paga in 3 Rate (BNPL)"
     if ("ADDEBITO SDD" in up or "ADDEBITI PREAUTORIZZATI SDD" in up) and "PAYPAL" in up:
@@ -326,7 +359,7 @@ def clean_bper_merchant(description: str) -> str:
         return "Tabaccheria Filadelfia"
     if "TABACCHERIA BUTERA" in up:
         return "Tabaccheria Butera"
-    if "GTT.TO.IT" in up or "TAP & GO TORINO" in up:
+    if "GTT.TO.IT" in up:
         return "GTT Torino Transit"
     if "ATM MILAN" in up or "DUOMO CORDUSIO" in up or "GARIBALDI M2" in up or "LAMPUGNANO M1" in up:
         return "ATM Milano Transit"
@@ -336,6 +369,12 @@ def clean_bper_merchant(description: str) -> str:
         return "Google Play"
     if "GOOGLE*GOOGLE ONE" in up:
         return "Google One"
+
+    # Generic VOSTRA DISPOSIZIONE / SCT transfer recipient extraction ("Fv. Name ...")
+    m_fv = re.search(r"\bFv\.\s*([A-Za-z][A-Za-z\s'\-]{2,30}?)(?:\s+(?:Rif\.|l'affitto|Rent|danni|Compleanno|moggio)|$)", desc, flags=re.IGNORECASE)
+    if m_fv and ("VOSTRA DISPOSIZIONE" in up or "BONIFICO" in up):
+        recip = " ".join(m_fv.group(1).split())
+        return f"Bonifico ({recip})"[:42]
 
     # Generic PayPal *Merchant cleanup
     m_pp = re.search(r"PAYPAL\s*\*\s*([A-Za-z0-9._\-]+)", desc, flags=re.IGNORECASE)
@@ -393,9 +432,14 @@ def infer_default_recurrence(description: str, merchant: str, category: str, amo
     if "WISE" in up_merch and abs(float(amount)) > 300.0:
         return "Recurring"
 
+    # Explicit One-Time repairs, travel groceries, or laundry
+    if any(k in up_desc for k in ("DANNI FINESTRA", "LAUNDRY 2 DAY", "ALBERT HEIJN", "AH TO GO", "SPAR ", "CRF MKT")):
+        return "One-Time"
+
     # Known recurring commitments, subscriptions, utilities, PAC, mensa, groceries
     recurring_merchants = (
         "AFFITTO (DAVIDE MANCINI)",
+        "AFFITTO (GIORGIO BARISONE)",
         "ENI PLENITUDE (GAS & LUCE)",
         "PAC FONDI ETICA SGR",
         "AMAZON PRIME",
@@ -403,6 +447,7 @@ def infer_default_recurrence(description: str, merchant: str, category: str, amo
         "GOOGLE ONE",
         "PELLEGRINI MENSA",
         "IN'S MERCATO",
+        "MERCATÒ SUPERMARKET",
         "BENNET",
         "PAYPAL PAGA IN 3 RATE (BNPL)",
         "PAYPAL SDD",
@@ -446,8 +491,12 @@ def classify_bper_transaction(description: str, amount: float, suspect_threshold
         return "Bank Fees, Taxes & Bollo", "Essential Pass"
 
     # Prevent "Carta n. **4521 ... GARIBALDI M2" from matching "PAM " or "IP " accidentally
-    if any(k in upper_desc for k in ("GARIBALDI M2", "LAMPUGNANO M1", "DUOMO CORDUSIO", "ATM MILAN", "GTT.TO.IT", "TAP & GO TORINO", "RATP PARIS")):
+    if any(k in upper_desc for k in ("GARIBALDI M2", "LAMPUGNANO M1", "DUOMO CORDUSIO", "ATM MILAN", "GTT.TO.IT", "TAP & GO", "RATP PARIS", "OVPAY.NL", "NS REIZIGERS", "STIB ", "STIBMIVB", "STIB/MIVB", "FLIBCO")):
         return "Transport, Fuel & Transit", "Essential Pass"
+
+    # One-time house repair to landlord shouldn't auto-pass as Essential Pass
+    if "DANNI FINESTRA" in upper_desc:
+        return "Rent / Mortgage & Utilities", "Pending Review"
 
     # Monthly €100 stock/fund investments ("SOTTOSCRIZIONI FONDI E SICAV")
     if any(k in upper_desc for k in ("SOTTOSCRIZIONI FONDI", "SOTTOSCRIZIONE ETICA", "FONDI E SICAV")):

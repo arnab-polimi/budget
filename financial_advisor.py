@@ -176,6 +176,36 @@ def compute_financial_intelligence(
         )
     monthly_summary_df = pd.DataFrame(monthly_rows)
 
+    # Year-over-Year Comparison Table (e.g. 2025 vs 2026)
+    yearly_rows = []
+    if not monthly_summary_df.empty:
+        ms_tmp = monthly_summary_df.copy()
+        ms_tmp["Year"] = ms_tmp["Month"].str.slice(0, 4)
+        for yr, grp in ms_tmp.groupby("Year"):
+            ym_cnt = len(grp)
+            y_in = float(grp["Inflow (€)"].sum())
+            y_out = float(grp["Total Outflow (€)"].sum())
+            y_inv = float(grp["Invested (Fondi + Wise 12k INR) (€)"].sum())
+            y_wealth = float(grp["Net Wealth Retained + Invested (€)"].sum())
+            y_rec_avg = float(grp["Recurring Outflow (€)"].mean())
+            y_one_avg = float(grp["One-Time Outflow (€)"].mean())
+            y_sr = (y_wealth / y_in * 100.0) if y_in > 0 else 0.0
+            yearly_rows.append(
+                {
+                    "Year": yr,
+                    "Months": ym_cnt,
+                    "Inflow (€)": round(y_in, 2),
+                    "Avg Inflow/mo (€)": round(y_in / ym_cnt, 2),
+                    "Total Outflow (€)": round(y_out, 2),
+                    "Avg Recurring/mo (€)": round(y_rec_avg, 2),
+                    "Avg One-Time/mo (€)": round(y_one_avg, 2),
+                    "Invested (PAC + Wise) (€)": round(y_inv, 2),
+                    "Net Wealth (+Invested) (€)": round(y_wealth, 2),
+                    "Effective Save Rate (%)": round(y_sr, 1),
+                }
+            )
+    yearly_comparison_df = pd.DataFrame(yearly_rows)
+
     # Specific Leak Analysis (Reactive to Audit Verdicts + Recurrence + Interactive Sliders!)
     leaks: List[Dict[str, Any]] = []
 
@@ -514,6 +544,7 @@ def compute_financial_intelligence(
             "completion_pct": round(audit_completion_pct, 1),
         },
         "monthly_summary_df": monthly_summary_df,
+        "yearly_comparison_df": yearly_comparison_df,
         "leaks_df": leaks_df,
         "total_saveable_period": round(total_saveable_period, 2),
         "total_saveable_monthly": round(total_saveable_monthly, 2),

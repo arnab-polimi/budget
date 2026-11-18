@@ -420,6 +420,61 @@ def bulk_update_merchant_verdict(
     return changed
 
 
+def reclassify_all_transactions() -> int:
+    """
+    Re-applies smart merchant normalization, category classification, and recurrence detection
+    across all stored transactions while preserving already-audited verdicts.
+    """
+    import bper_importer
+
+    conn = get_connection()
+    rows = conn.execute("SELECT id, tx_date, description, amount, verdict, recurrence FROM transactions").fetchall()
+
+    # Track distinct months per normalized merchant to detect true recurring commitments (>= 3 months)
+    variable_discretionary = {
+        "Amazon",
+        "Glovo",
+        "Deliveroo",
+        "Revolut Top-Up / Transfer",
+        "Wise Transfer",
+        "Decathlon",
+        "MediaWorld",
+        "PayPal (Temu)",
+        "La Locomotiva",
+        "Ricarica Carta Prepagata",
+    }
+    merchant_months: Dict[str, set] = {}
+    parsed_updates: List[Tuple[int, str, str, str, str, str]] = []
+    for r in rows:
+        desc = str(r["description"])
+        amt = float(r["amount"])
+        m = bper_importer.clean_bper_merchant(desc)
+        cat, default_verd = bper_importer.classify_bper_transaction(desc, amt)
+        rec = bper_importer.infer_default_recurrence(desc, m, cat, amt)
+        ym = str(r["tx_date"])[:7]
+        if amt < 0:
+            merchant_months.setdefault(m, set()).add(ym)
+        parsed_updates.append((int(r["id"]), m, cat, default_verd, rec, str(r["verdict"])))
+
+    cur = conn.cursor()
+    updated = 0
+    for tx_id, m, cat, default_verd, rec, old_verd in parsed_updates:
+        is_frequent_committed = (m not in variable_discretionary) and (len(merchant_months.get(m, set())) >= 3)
+        final_rec = "Recurring" if (rec == "Recurring" or is_frequent_committed) else "One-Time"
+        final_verd = old_verd
+        if old_verd == "Pending Review" and default_verd in ("Essential Pass", "Justified"):
+            final_verd = default_verd
+        cur.execute(
+            "UPDATE transactions SET merchant = ?, category = ?, recurrence = ?, verdict = ? WHERE id = ?",
+            (m, cat, final_rec, final_verd, tx_id),
+        )
+        updated += 1
+
+    conn.commit()
+    conn.close()
+    return updated
+
+
 def get_transactions_df(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
